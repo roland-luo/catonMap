@@ -18,3 +18,6 @@ web/public/regions/
 *.log
 .DS_Store
 .idea/
+
+# texture review sheets (regenerate with `node pipeline/tools/qwen-texture.mjs --name <n> --reuse`)
+*.tile.png

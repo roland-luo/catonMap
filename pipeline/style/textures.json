@@ -1,0 +1,144 @@
+{
+  "_comment": [
+    "Textures for the cartoon renderer, generated one at a time with the local Qwen-Image 2.1.",
+    "node pipeline/tools/qwen-texture.mjs --name factory-blue",
+    "module = the size in metres the shader tiles one copy to (renderer.ts, FACADE_MODULE / ROOF_MODULE).",
+    "Every texture is flat-lit and shadowless: the shader adds the cel ramp, the sun and the AO."
+  ],
+  "defaults": {
+    "resolution": 1024,
+    "steps": 26,
+    "cfg": 4.0,
+    "shift": 3.1,
+    "seed": 20261111,
+    "negative": "buildings, houses, city, urban scene, aerial view, sky, horizon, streets, roofs seen from a distance, perspective, vanishing point, 3d render, photograph, cast shadow, gradient lighting, vignette, text, letters, signage, watermark, people, cars, frame, border, drop shadow"
+  },
+  "images": [
+    {
+      "name": "factory-blue",
+      "module": [
+        20,
+        20
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. One structural bay of a modern Chinese car-factory workshop wall in bold flat cartoon style, straight on elevation, the whole square is that wall, vertical layout from top to bottom: the top 40 percent of the square is plain off-white corrugated steel with fine vertical ribs, below it ONE wide horizontal band of strong mid sky-blue steel (about one eighth of the frame tall), directly below the band ONE continuous strip of pale blue-green windows with thin dark frames and slim vertical mullions (about one eighth of the frame tall), and the whole bottom half of the square is plain off-white corrugated steel with fine vertical ribs, ending in a narrow sky-blue plinth along the very bottom edge. The band and the window strip therefore sit just above the middle of the square, not at the top. Only three flat colours: warm off-white steel #efece1 (warmer and slightly darker than paper white), mid sky-blue #4a90c8, pale blue-green glass #a8cdd2. Big simple shapes, high contrast between the off-white steel and the blue band, so it still reads when the image is shrunk to 80 pixels. No gradient, no noise, no vents, no doors, no signage. Very thick dark ink outlines about 12 px, flat two-tone shading, subtle paper grain.",
+      "crop": [
+        0,
+        0.17,
+        1,
+        0.82
+      ]
+    },
+    {
+      "name": "residential-cream",
+      "module": [
+        14,
+        14
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. Two bays and three storeys of a Chinese 2000s walk-up apartment wall in a bold flat cartoon style: warm cream plaster, pale grey floor bands, square windows with white frames and pale blue-green glass, a white balcony railing on the right bay, one wall-mounted air-conditioner box, a dark plinth at the very bottom. Thick dark ink outlines, two-tone flat shading, subtle paper grain.",
+      "crop": [
+        0.03,
+        0.03,
+        0.94,
+        0.94
+      ]
+    },
+    {
+      "name": "office-glass",
+      "module": [
+        16,
+        16
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. A large simple grid of EXACTLY three storeys and EXACTLY three bays of a modern office wall in a bold flat cartoon style, each cell filling a third of the square: wide warm light-grey stone piers on the left of every bay, one big pale blue-green window pane per bay with a single thin aluminium mullion down its middle, a dark grey spandrel band along the bottom of every storey, a slim stone cornice along the top edge. Only three flat colours: warm light grey stone, pale blue-green glass, dark grey spandrel. Big shapes, coarse grid, high contrast, so it still reads when the image is shrunk to 64 pixels and never turns into moiré. No small windows, no extra floors, no gradient, no noise. Thick dark ink outlines about 12 px, flat colours, subtle paper grain.",
+      "crop": [
+        0.0303,
+        0.0303,
+        0.9336,
+        0.9336
+      ]
+    },
+    {
+      "name": "tower-curtain",
+      "module": [
+        12,
+        12
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. One bay of a glass office tower in a bold flat cartoon style: pale blue-green curtain wall with slim vertical aluminium mullions and one horizontal grey spandrel band, faint lighter reflection streaks. Thick dark ink lines, flat colours.",
+      "crop": [
+        0.03,
+        0.03,
+        0.94,
+        0.94
+      ]
+    },
+    {
+      "name": "bauhaus-white",
+      "module": [
+        16,
+        16
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. Two bays and three storeys of a plain white 1980s institutional wall in a bold flat cartoon style: white plaster, continuous horizontal ribbon windows with pale blue-green glass in thin dark frames, white parapets under the windows. Thick dark ink lines, flat colours, subtle paper grain.",
+      "crop": [
+        0.03,
+        0.03,
+        0.94,
+        0.94
+      ]
+    },
+    {
+      "name": "public-stone",
+      "module": [
+        14,
+        14
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. Two storeys of a public building wall in a bold flat cartoon style: warm beige stone panels with regular joints, two tall narrow windows with dark bronze frames and pale blue-green glass, a slim cornice at the top. Thick dark ink lines, flat colours, subtle paper grain.",
+      "crop": [
+        0.03,
+        0.03,
+        0.94,
+        0.94
+      ]
+    },
+    {
+      "name": "roof-metal",
+      "module": [
+        8,
+        8
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. Extreme close-up of a silver-grey standing-seam metal roof surface in a bold flat cartoon style: parallel seam ridges running left to right, a slightly lighter dusty panel, two small round vents, one square skylight of pale blue glass. Only the metal surface, nothing else. Thick dark ink lines, flat colours, subtle paper grain.",
+      "crop": [
+        0.02,
+        0.02,
+        0.96,
+        0.96
+      ]
+    },
+    {
+      "name": "roof-blue",
+      "module": [
+        8,
+        8
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof edge, no sky, no ground, no horizon, no perspective. Straight-down plan view of a clean sky-blue profiled-steel roof, nothing but that steel surface: wide trapezoidal ribs running exactly parallel from the left edge to the right edge, about eight ribs across the square, each rib with a pale sky-blue crest highlight, a deeper sky-blue shadow line in its valley and one thin dark ink seam between ribs. Perfectly even, calm and clean, only horizontal structure, no diagonal lines, no dirt, no vents, no skylights, no objects, no gradient, no lighting from a side. Only two flat colours: sky blue #6fa5d0 and a deeper blue #4b7fa8, plus dark ink lines about 10 px. Big simple shapes, so it still reads when the image is shrunk to 32 pixels. Flat colours, subtle paper grain.",
+      "crop": [
+        0.02,
+        0.02,
+        0.96,
+        0.96
+      ]
+    },
+    {
+      "name": "roof-concrete",
+      "module": [
+        8,
+        8
+      ],
+      "prompt": "A flat pattern that fills the entire square frame edge to edge, cropped by the frame on all four sides, so it repeats seamlessly: no building outline, no roof, no sky, no ground, no horizon, no perspective. Extreme close-up of a flat concrete roof with overlapping bitumen waterproofing sheets in a bold flat cartoon style: sheet seams in a grid, a pale grey gravel patch, a small square hatch, a short vent pipe, one pale green painted patch. Only the roof surface, nothing else. Thick dark ink lines, flat colours, subtle paper grain.",
+      "crop": [
+        0.02,
+        0.02,
+        0.96,
+        0.96
+      ]
+    }
+  ]
+}

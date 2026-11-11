@@ -26,9 +26,15 @@ sources without the municipal layer:
 
 > Map data © OpenStreetMap contributors · Shanghai · Terrain: Copernicus DEM © DLR, Airbus DS · Cel-shaded cartoon render
 
-Chengdu · Longquanyi uses OSM + Copernicus only as well:
+Chengdu · Longquanyi uses OSM + Copernicus only too, with the façade and roof textures generated for its cel
+shader:
 
-> Map data © OpenStreetMap contributors · Chengdu · Longquanyi · Terrain: Copernicus DEM © DLR, Airbus DS · Cel-shaded cartoon render
+> Map data © OpenStreetMap contributors · Chengdu · Longquanyi · Terrain: Copernicus DEM © DLR, Airbus DS · Cel-shaded cartoon render · Facade textures generated with Qwen-Image 2.1 (Apache-2.0)
+
+Those are the region's three `credits` lines in `places.ts`, joined with " · ". The textures are generated
+decoration, not map content: no photographed or third-party imagery goes into them, and the geometry under them
+is still OpenStreetMap (ODbL) and Copernicus DEM. The photo references in `pipeline/style/facades/README.md` set
+the palette and construction only; they are never shipped and never feed a render.
 
 ## Data sources
 
@@ -49,10 +55,13 @@ social platforms ask for AI-generated content to be labelled.
 The Shanghai and Chengdu regions are **not** painted with an image model: they are rendered with the in-repo
 cel-shading pass (`render --style cartoon`), so their tiles and clips must not be labelled "Painted with AI";
 they are credited as a cel-shaded render. The same applies to any region rendered with `--style cartoon`.
+Chengdu's façade and roof textures come from Qwen-Image 2.1, which runs on those flat pattern images only: the
+shader tiles and lights them, so the tiles stay a cel render, not painted map content.
 
-Everything in `pipeline/style/` was painted the same way for this project: `reference.png` (the house style,
-a stretch of the painted Tel Aviv map: Gordon beach and the city behind it), `trees.png` (tree species
-sheet) and `sea.png` (sea texture).
+`pipeline/style/reference.png` (the house style, a stretch of the painted Tel Aviv map: Gordon beach and the
+city behind it), `trees.png` (tree species sheet) and `sea.png` (sea texture) were painted the same way for
+this project. `pipeline/style/facades/` is the exception: its façade and roof textures are generated with
+Qwen-Image 2.1 (below) and are flat-lit on purpose, because the shader adds the light.
 
 ## Software
 
@@ -60,7 +69,10 @@ sheet) and `sea.png` (sea texture).
 [Astro](https://astro.build) (MIT), [sharp](https://sharp.pixelplumbing.com) (Apache-2.0),
 [Playwright](https://playwright.dev) (Apache-2.0), [esbuild](https://esbuild.github.io) (MIT),
 [tsx](https://tsx.is) (MIT), [FFmpeg](https://ffmpeg.org) (LGPL/GPL, used as an external tool only),
-[gifsicle](https://www.lcdf.org/gifsicle/) (GPL-2.0, external tool only). Installed from npm or the system package manager,
-not vendored; their licences come with them.
+[gifsicle](https://www.lcdf.org/gifsicle/) (GPL-2.0, external tool only),
+[Qwen-Image 2.1](https://github.com/QwenLM/Qwen-Image) (Apache-2.0, model weights run locally through ComfyUI).
+Installed from npm or the system package manager, not vendored; their licences come with them. The Qwen-Image
+weights are not in this repository either (they live in the local ComfyUI install), and its output — the façade
+and roof textures in `pipeline/style/facades/` — is our own asset under this project's licence.
 
 This is not legal advice.

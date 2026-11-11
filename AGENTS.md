@@ -12,7 +12,8 @@ Hand-painted isometric city maps from open data. Read `README.md` (pipeline, lay
    use, licence, obligations), in the region's `credits` in `pipeline/src/places.ts` (shown on the map's
    video mode and on social clips), and in the footer (`web/src/scripts/map.ts`) when it has its own link.
 3. **Keep the licence terms intact**: "© OpenStreetMap contributors" visible wherever the map or a video is
-   shown (ODbL); Copernicus DEM text as written in `ATTRIBUTION.md`; "Painted with AI" on clips; the
+   shown (ODbL); Copernicus DEM text as written in `ATTRIBUTION.md`; "Painted with AI" on clips of painted
+   regions (a `--style cartoon` region is credited as a cel-shaded render instead); the
    `pipeline/` stays published as the method to recreate the derived database (ODbL).
 4. **Stay inside the files you were asked to change.** Never stop the user's dev server
    (`astro dev stop`): they keep it open while you work (any port; the dev server prints it). Don't touch `web/` while a film render
@@ -105,9 +106,23 @@ polygons stay closed), cached per cell, merged by id. Add `--force` to rewrite t
 `--refetch` to ignore the cell cache.
 
 A region can skip the image model entirely: `npm run render -- <area> --style cartoon` renders through a depth
-target and a fullscreen pass (posterised shading, ink silhouettes and roof creases, paper grain). It is the
-default for Shanghai. Such tiles are not AI-painted: credit them as a cel-shaded render and do not say
-"Painted with AI". Everything after `render` (export, publish, deploy) is unchanged.
+target and a fullscreen pass (posterised shading, ink silhouettes and roof creases, paper grain, three cel tones
+per block, a screen-space sun march for cast shadows, depth-based AO and an overscan so ink, AO and shadows run
+unbroken across tile borders, roof texture UVs turned per building). It is the default for Shanghai and Chengdu;
+the Israel region keeps `--style plain`, unchanged. Such tiles are not AI-painted: credit them as a cel-shaded
+render and do not say "Painted with AI". Everything after `render` (export, publish, deploy) is unchanged.
+
+**Cartoon textures (Chengdu).** The cartoon shader tiles façade and roof textures from
+`pipeline/style/facades/`; each must be flat-lit, shadowless and mirror-tileable, because the shader adds the
+cel ramp, the sun and the AO. To add or redo one, add an entry (name, `module` in metres, prompt, crop) to
+`pipeline/style/textures.json` and run `node pipeline/tools/qwen-texture.mjs --name <name>`: generation is
+**one image at a time** on the local ComfyUI (Qwen-Image 2.1, `127.0.0.1:8188`), judge the 2×2
+`<name>.tile.png` repeat sheet before spending the next one. Cheaper variants are derived, not generated
+(`node pipeline/tools/derive-textures.mjs`: washes, rules, blur). Then wire it up: `FACADE_FILES`/`ROOF_FILES`
+in `pipeline/page/renderer.ts`, and its `FACADE_MODULE`/`ROOF_MODULE` (with the shader's `moduleOf()`) must
+equal the `module` in `textures.json`. `pipeline/src/render.ts` serves `pipeline/style/` to the headless page
+as `/style/*`. The photo references in `pipeline/style/facades/README.md` set palette and construction only:
+never ship them, never feed them to the renderer.
 
 ```sh
 npm -w pipeline run boundaries -- <region>   # new region only

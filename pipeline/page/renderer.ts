@@ -15,6 +15,10 @@ const STYLE = params.get("style") ?? "plain";
 const CARTOON = STYLE === "cartoon";
 const SS = Number(params.get("ss") ?? 2); // supersampling
 const SIZE = CAMERA.tile * SS;
+/** Overscan in render px: the scene is rendered bigger than the tile and cropped in the post pass, so
+ *  ink lines, AO and the sun march keep working across a tile border (they need neighbours). */
+const PAD = 128;
+const FULL = SIZE + 2 * PAD;
 const HEIGHT_SIZE = 256;
 /** Ground texture resolution (m per texel); the render samples ~0.125 m across, 0.18 m in depth. */
 const GROUND_MPT = 0.15;
@@ -32,8 +36,8 @@ const scene = new THREE.Scene();
 // The scene is rendered into a target with a depth texture; a fullscreen pass posterises the shading,
 // inks the silhouettes (Sobel on the orthographic depth) and lays a little paper grain. All noise is
 // keyed on global pixel coordinates so neighbouring tiles continue the same paper.
-const depthTexture = new THREE.DepthTexture(SIZE, SIZE, THREE.UnsignedIntType);
-const colorTarget = new THREE.WebGLRenderTarget(SIZE, SIZE, {
+const depthTexture = new THREE.DepthTexture(FULL, FULL, THREE.UnsignedIntType);
+const colorTarget = new THREE.WebGLRenderTarget(FULL, FULL, {
   minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true, depthTexture,
 });
 colorTarget.texture.generateMipmaps = false;
@@ -43,12 +47,16 @@ const postCamera = new THREE.Camera();
 const DEBUG = params.get("debug") ?? "";
 const postMaterial = new THREE.ShaderMaterial({
   depthTest: false, depthWrite: false,
-  defines: DEBUG === "edge" ? { DEBUG_EDGE: 1 } : {},
+  defines: DEBUG === "edge" ? { DEBUG_EDGE: 1 } : DEBUG === "shadow" ? { DEBUG_SHADOW: 1 } : DEBUG === "ao" ? { DEBUG_AO: 1 } : {},
   uniforms: {
     tColor: { value: colorTarget.texture }, tDepth: { value: depthTexture },
-    texel: { value: new THREE.Vector2(1 / SIZE, 1 / SIZE) },
+    texel: { value: new THREE.Vector2(1 / FULL, 1 / FULL) },
     offset: { value: new THREE.Vector2(0, 0) },
     near: { value: 1 }, far: { value: 6000 },
+    crop: { value: SIZE },          // the tile edge in px, inside the padded image
+    pad: { value: PAD },            // overscan on each side, px
+    halfSize: { value: 128 },       // padded camera half size, metres (set per tile)
+    sunView: { value: new THREE.Vector3(-0.55, -0.35, 0.76).normalize() },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -56,6 +64,8 @@ const postMaterial = new THREE.ShaderMaterial({
   fragmentShader: /* glsl */ `
     uniform sampler2D tColor; uniform sampler2D tDepth;
     uniform vec2 texel, offset; uniform float near, far;
+    uniform float crop, pad, halfSize;
+    uniform vec3 sunView;
     varying vec2 vUv;
     const vec3 INK = vec3(0.10, 0.11, 0.15);
     float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -66,13 +76,45 @@ const postMaterial = new THREE.ShaderMaterial({
     }
     /** Orthographic depth is linear in view distance. */
     float dist(vec2 uv) { return near + texture2D(tDepth, uv).x * (far - near); }
+    vec3 viewPos(vec2 uv, float d) {
+      return vec3((uv.x * 2.0 - 1.0) * halfSize, (uv.y * 2.0 - 1.0) * halfSize, -d);
+    }
+    vec2 uvOf(vec3 p) { return vec2(p.x, p.y) / halfSize * 0.5 + 0.5; }
+
     void main() {
-      vec3 c = toSrgb(texture2D(tColor, vUv).rgb);
+      // the tile sits in the middle of the padded image: everything below works in padded uv
+      vec2 uv = (vUv * crop + pad) / (crop + 2.0 * pad);
+      float d0 = dist(uv);
+
+      // ---- ambient occlusion: eight taps in a ~9 m disc, against the linear depth -------------
+      float occ = 0.0;
+      float rad = 9.0 / (2.0 * halfSize);
+      for (int i = 0; i < 8; i++) {
+        float a = float(i) * 0.785398 + 0.4;
+        vec2 t = uv + vec2(cos(a), sin(a)) * rad * (mod(float(i), 2.0) < 0.5 ? 1.0 : 0.55);
+        occ += step(0.9, d0 - dist(t));
+      }
+      float ao = 1.0 - 0.22 * (occ / 8.0);
+
+      // ---- sun marching: walk toward the sun in view space, 1.5 m a step ----------------------
+      float lit = 1.0;
+      vec3 p = viewPos(uv, d0);
+      for (int i = 1; i <= 24; i++) {
+        vec3 q = p + sunView * (1.6 * float(i));
+        vec2 t = uvOf(q);
+        if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) break;
+        if (dist(t) < -q.z - 0.7) { lit = 0.0; break; }
+      }
+
+      vec3 c = toSrgb(texture2D(tColor, uv).rgb);
+      c *= ao;
+      // a hard cel shadow with a soft contact fringe: one step, quantised like everything else
+      c *= mix(0.74, 1.0, lit);
+
       // ink: depth steps between neighbours are silhouettes / occlusions; curvature (a second
       // difference of the linear orthographic depth) catches the crease where a wall meets its roof.
-      float d0 = dist(vUv);
-      float dl = dist(vUv - vec2(texel.x, 0.0)), dr = dist(vUv + vec2(texel.x, 0.0));
-      float du = dist(vUv + vec2(0.0, texel.y)), dd = dist(vUv - vec2(0.0, texel.y));
+      float dl = dist(uv - vec2(texel.x, 0.0)), dr = dist(uv + vec2(texel.x, 0.0));
+      float du = dist(uv + vec2(0.0, texel.y)), dd = dist(uv - vec2(0.0, texel.y));
       float jump = max(max(abs(dl - d0), abs(dr - d0)), max(abs(du - d0), abs(dd - d0)));
       float crease = max(abs(dl + dr - 2.0 * d0), abs(du + dd - 2.0 * d0));
       // the 8-neighbourhood and a wider ring thicken the line (2-3 px before the 2× downscale)
@@ -80,17 +122,18 @@ const postMaterial = new THREE.ShaderMaterial({
       for (int i = 0; i < 24; i++) {
         float a = float(i % 8) * 0.785398;
         float r = i < 8 ? 1.6 : i < 16 ? 3.2 : 4.6;
-        wide = max(wide, abs(dist(vUv + vec2(cos(a), sin(a)) * r * texel) - d0));
+        wide = max(wide, abs(dist(uv + vec2(cos(a), sin(a)) * r * texel) - d0));
       }
       float edge = max(smoothstep(0.35, 0.9, jump), smoothstep(0.8, 2.0, wide) * 0.95);
       edge = max(edge, smoothstep(0.18, 0.6, crease) * 0.95);
-      // cel shading: quantise luminance into 6 bands, keep the hue
+
+      // cel shading: six luminance bands, gentler than flat colouring so the facade tones survive
       float l = dot(c, vec3(0.299, 0.587, 0.114));
       float band = floor(l * 6.0 + 0.35) / 6.0 + 0.035;
-      c = mix(c, c * (band / max(l, 0.04)), 0.6);
+      c = mix(c, c * (band / max(l, 0.04)), 0.34);
       // contrast (an S-curve on luminance, so hue stays), then a warmer, more saturated illustration
       float l2 = l * l * (3.0 - 2.0 * l);
-      c *= mix(1.0, l2 / max(l, 0.02), 0.38);
+      c *= mix(1.0, l2 / max(l, 0.02), 0.30);
       c = mix(vec3(l), c, 1.20);
       c *= vec3(1.05, 1.0, 0.93);
       // paper: fine grain and a soft fibre, both fixed in global pixel space
@@ -98,8 +141,12 @@ const postMaterial = new THREE.ShaderMaterial({
       float grain = hash(g) * 0.07 + hash(floor(g / 3.0)) * 0.035;
       c *= 0.955 + grain;
       c = mix(c, INK, edge);
-      #ifdef DEBUG_EDGE
+      #if defined(DEBUG_EDGE)
         gl_FragColor = vec4(vec3(edge), 1.0);
+      #elif defined(DEBUG_SHADOW)
+        gl_FragColor = vec4(vec3(lit), 1.0);
+      #elif defined(DEBUG_AO)
+        gl_FragColor = vec4(vec3(ao), 1.0);
       #else
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
       #endif
@@ -469,21 +516,63 @@ const PALETTE: Array<[number[], number[]]> = [
 ];
 const SUN = new THREE.Vector3(-0.55, -0.35, 0.76).normalize();
 
+/** Facade textures, one per style index (see style() in src/scene.ts), generated offline with the
+ *  local Qwen-Image 2.1 (pipeline/tools/qwen-texture.mjs), plus three roofs. Each image is exactly one
+ *  module in metres and is mirror-tiled, so a wall has no visible repeat seam. */
+const FACADE_FILES = ["bauhaus-white", "residential-cream", "public-stone", "tower-curtain", "factory-blue", "office-glass"];
+const FACADE_MODULE: Array<[number, number]> = [[16, 16], [14, 14], [14, 14], [12, 12], [20, 20], [16, 16]];
+const ROOF_FILES = ["roof-metal", "roof-blue", "roof-concrete"];
+/** GLSL if-chain for moduleOf(), so the shader cannot drift from FACADE_MODULE */
+const MODULE_CASES = FACADE_MODULE.slice(0, -1)
+  .map(([w, h], i) => `      if (k == ${i}) return vec2(${w.toFixed(1)}, ${h.toFixed(1)});`)
+  .join("\n");
+const ROOF_MODULE = 8;
+const textureLoader = new THREE.TextureLoader();
+async function loadTexture(file: string) {
+  let texture: THREE.Texture;
+  try {
+    texture = await textureLoader.loadAsync(`/style/facades/${file}.png`);
+  } catch {
+    // a texture that has not been generated yet must not stop the whole render: paint flat instead
+    console.warn(`[textures] ${file}.png missing — flat fallback`);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 2;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ded6c5";
+    ctx.fillRect(0, 0, 2, 2);
+    texture = new THREE.CanvasTexture(canvas);
+  }
+  texture.wrapS = THREE.MirroredRepeatWrapping;
+  texture.wrapT = THREE.MirroredRepeatWrapping;
+  texture.anisotropy = 4;
+  texture.colorSpace = THREE.NoColorSpace; // sampled by hand: toLinear() in the shaders
+  return texture;
+}
+const FACADE_TEX = await Promise.all(FACADE_FILES.map(loadTexture));
+const ROOF_TEX = await Promise.all(ROOF_FILES.map(loadTexture));
+
 const buildingMaterial = new THREE.ShaderMaterial({
   defines: CARTOON ? { CARTOON: 1 } : {},
   vertexShader: /* glsl */ `
     attribute vec3 color;
     attribute vec2 facade;   // (meters along wall, meters above ground); y = -1000: roof / rooftop object
+    attribute vec2 roofUv;   // world x,y in metres, for the roof textures
     attribute float kind;    // style index
     attribute float tint;    // 0..1 per building: a pastel wash so neighbours differ
-    varying vec3 vColor; varying vec3 vNormal; varying vec2 vFacade; varying float vKind; varying float vTint;
+    attribute float hgt;     // building height, for the parapet band
+    varying vec3 vColor; varying vec3 vNormal; varying vec2 vFacade; varying vec2 vRoofUv;
+    varying float vKind; varying float vTint; varying float vHgt;
     void main() {
-      vColor = color; vNormal = normal; vFacade = facade; vKind = kind; vTint = tint;
+      vColor = color; vNormal = normal; vFacade = facade; vRoofUv = roofUv;
+      vKind = kind; vTint = tint; vHgt = hgt;
       gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
     }`,
   fragmentShader: /* glsl */ `
     uniform vec3 sun;
-    varying vec3 vColor; varying vec3 vNormal; varying vec2 vFacade; varying float vKind; varying float vTint;
+    uniform sampler2D uFacade0, uFacade1, uFacade2, uFacade3, uFacade4, uFacade5;
+    uniform sampler2D uRoof0, uRoof1, uRoof2;
+    varying vec3 vColor; varying vec3 vNormal; varying vec2 vFacade; varying vec2 vRoofUv;
+    varying float vKind; varying float vTint; varying float vHgt;
     const vec3 GLASS = vec3(0.30, 0.40, 0.50);
     /** Authored colours are sRGB; cartoon renders go through a linear target (undone in postMaterial). */
     vec3 toLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
@@ -492,70 +581,102 @@ const buildingMaterial = new THREE.ShaderMaterial({
       vec3(0.99, 0.95, 0.86), vec3(0.96, 0.86, 0.79), vec3(0.91, 0.89, 0.74),
       vec3(0.84, 0.90, 0.82), vec3(0.85, 0.90, 0.96), vec3(0.99, 0.91, 0.72),
       vec3(0.93, 0.80, 0.74), vec3(0.88, 0.86, 0.84));
+    /** the module a facade texture repeats over, in metres (generated from FACADE_MODULE) */
+    vec2 moduleOf(int k) {
+${MODULE_CASES}
+      return vec2(${FACADE_MODULE[5][0].toFixed(1)}, ${FACADE_MODULE[5][1].toFixed(1)});
+    }
+    vec3 facadeTex(int k, vec2 uv) {
+      if (k == 0) return texture2D(uFacade0, uv).rgb;
+      if (k == 1) return texture2D(uFacade1, uv).rgb;
+      if (k == 2) return texture2D(uFacade2, uv).rgb;
+      if (k == 3) return texture2D(uFacade3, uv).rgb;
+      if (k == 4) return texture2D(uFacade4, uv).rgb;
+      return texture2D(uFacade5, uv).rgb;
+    }
+    /** three flat tones (sun side / side / shadow side) with cool shadows: the volume of the block */
+    float celTone(float ndl) {
+      if (ndl > 0.62) return 1.0;
+      if (ndl > 0.12) return 0.85;
+      if (ndl > -0.30) return 0.70;
+      return 0.58;
+    }
     void main() {
       vec3 n = normalize(vNormal);
-      float light = min(1.10, 0.74 + 0.40 * max(dot(n, sun), 0.0));
-      vec3 c = vColor;
+      bool roof = vFacade.y < -100.0;
+      vec3 albedo;
+      if (roof) {
       #ifdef CARTOON
-        // walls only: roofs stay neutral so the town reads as roofs above tinted façades
-        if (vFacade.y > -100.0) c = mix(c, TINTS[int(mod(vTint * 8.0, 8.0))], 0.45);
+        int k = int(vKind + 0.5);
+        // sheds alternate silver standing seam and blue profiled steel; everything else concrete
+        int rk = k == 4 ? (vTint > 0.5 ? 1 : 0) : 2;
+        // every roof is turned a little, so the panel ribs of one block never line up with its neighbour
+        float ang = vTint * 3.1416;
+        mat2 rot = mat2(cos(ang), -sin(ang), sin(ang), cos(ang));
+        vec2 uv = (rot * vRoofUv) / ${ROOF_MODULE.toFixed(1)};
+        vec3 t = rk == 0 ? texture2D(uRoof0, uv).rgb : rk == 1 ? texture2D(uRoof1, uv).rgb : texture2D(uRoof2, uv).rgb;
+        albedo = mix(toLinear(t), vColor, 0.30);
+      #else
+        albedo = vColor; // the original flat render has no textures at all
       #endif
-      if (vFacade.y > -100.0) {
+      } else {
         int k = int(vKind + 0.5);
         #ifdef CARTOON
-        // Big simple openings, one per bay and storey: cartoon buildings read as shapes, not texture.
-        float floorH = 3.6;
-        float bayW = k == 3 ? 6.0 : 4.2;
-        float fl = fract(vFacade.y / floorH), x = vFacade.x;
-        float col = fract(x / bayW);
-        // walls settle into the ground: a soft darkening at the base
-        c *= 0.80 + 0.20 * smoothstep(1.5, 24.0, vFacade.y);
-        if (k == 3) {            // curtain wall: one big glass panel, pale mullion grid
-          vec3 glass = vec3(0.30, 0.42, 0.53);
-          c = mix(c, glass, 0.72);
-          bool mull = col < 0.06 || fl < 0.09;
-          if (mull) c = vec3(0.80, 0.83, 0.85);
-          if (vFacade.y < floorH) c = mix(c, vec3(0.20, 0.24, 0.28), 0.55); // dark arcade
-        } else {
-          bool win = col > 0.18 && col < 0.82 && fl > 0.24 && fl < 0.80 && vFacade.y > floorH * 1.05;
-          if (win) c = mix(c, GLASS, 0.82);
-          else if (fl < 0.14) c *= 0.88;          // floor slab
-          if (vFacade.y < floorH) {                // shops / entrance: a dark band with a lit opening
-            c = mix(c, vec3(0.30, 0.31, 0.34), 0.6);
-            if (col > 0.1 && col < 0.9 && fl > 0.25 && fl < 0.85) c = vec3(0.55, 0.64, 0.68);
-          }
-        }
+          vec2 uv = vFacade / moduleOf(k);
+          vec3 t = toLinear(facadeTex(k, uv));
+          albedo = t * (0.94 + 0.10 * vTint);
+          // parapet: a lit coping and the shadow under it; walls darken into the ground
+          float rel = vFacade.y / max(vHgt, 0.001);
+          if (rel > 0.955) albedo *= 1.06;
+          else if (rel > 0.915) albedo *= 0.84;
+          albedo *= 0.82 + 0.18 * smoothstep(0.0, 3.5, vFacade.y);
+          albedo = mix(albedo, albedo * mix(vec3(1.0), TINTS[int(mod(vTint * 8.0, 8.0))], 1.6), 0.16);
         #else
-        float fl = fract(vFacade.y / 3.2), x = vFacade.x;
-        bool ground = vFacade.y < 3.2;
-        if (k == 0) {            // Bauhaus: continuous ribbon windows, white balcony parapets
-          bool ribbon = fl > 0.45 && fl < 0.78 && fract(x / 7.0) > 0.08;
-          if (ribbon) c = mix(c, GLASS, 0.75);
-          else if (fl < 0.12) c *= 0.93;
-        } else if (k == 1) {     // 60s-80s residential: windows + recessed balcony band
-          float col = fract(x / 3.0);
-          if (fl > 0.30 && fl < 0.80 && col > 0.20 && col < 0.80) c = mix(c, GLASS, 0.70);
-          if (fl < 0.22) c *= 0.86;
-        } else if (k == 3) {     // tower: glass curtain wall, spandrel lines
-          c = mix(c, GLASS * 1.1, 0.55);
-          if (fl < 0.10 || fract(x / 1.6) < 0.06) c = vec3(0.80, 0.83, 0.86);
-        } else if (k == 5) {     // modern: large windows, glass balconies
-          float col = fract(x / 4.0);
-          if (fl > 0.18 && fl < 0.88 && col > 0.08 && col < 0.92) c = mix(c, GLASS, 0.65);
-        } else if (k == 2) {     // public: tall sparse windows
-          float col = fract(x / 4.5);
-          if (fl > 0.25 && fl < 0.85 && col > 0.35 && col < 0.65) c = mix(c, GLASS, 0.6);
-        }
-        if (ground && k != 3 && k != 4) c *= 0.84;  // shops / pilotis shade
+          // the original flat render: procedurally drawn windows, no textures
+          albedo = vColor;
+          if (vFacade.y > -100.0) {
+            int kk = int(vKind + 0.5);
+            float fl = fract(vFacade.y / 3.2), x = vFacade.x;
+            bool ground = vFacade.y < 3.2;
+            if (kk == 0) {
+              bool ribbon = fl > 0.45 && fl < 0.78 && fract(x / 7.0) > 0.08;
+              if (ribbon) albedo = mix(albedo, GLASS, 0.75);
+              else if (fl < 0.12) albedo *= 0.93;
+            } else if (kk == 1) {
+              float col = fract(x / 3.0);
+              if (fl > 0.30 && fl < 0.80 && col > 0.20 && col < 0.80) albedo = mix(albedo, GLASS, 0.70);
+              if (fl < 0.22) albedo *= 0.86;
+            } else if (kk == 3) {
+              albedo = mix(albedo, GLASS * 1.1, 0.55);
+              if (fl < 0.10 || fract(x / 1.6) < 0.06) albedo = vec3(0.80, 0.83, 0.86);
+            } else if (kk == 5) {
+              float col = fract(x / 4.0);
+              if (fl > 0.18 && fl < 0.88 && col > 0.08 && col < 0.92) albedo = mix(albedo, GLASS, 0.65);
+            } else if (kk == 2) {
+              float col = fract(x / 4.5);
+              if (fl > 0.25 && fl < 0.85 && col > 0.35 && col < 0.65) albedo = mix(albedo, GLASS, 0.6);
+            }
+            if (ground && kk != 3 && kk != 4) albedo *= 0.84;
+          }
         #endif
       }
       #ifdef CARTOON
-        gl_FragColor = vec4(toLinear(clamp(c * light, 0.0, 1.0)), 1.0);
+        float ndl = dot(n, sun);
+        float tone = roof ? 1.0 : celTone(ndl);
+        vec3 c = albedo * tone;
+        c = mix(c, c * vec3(0.90, 0.93, 1.05), (1.0 - tone) * 1.05); // shadow sides go cool, gently
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
       #else
-        gl_FragColor = vec4(c * light, 1.0);
+        float light = min(1.10, 0.74 + 0.40 * max(dot(n, sun), 0.0));
+        gl_FragColor = vec4(albedo * light, 1.0);
       #endif
     }`,
-  uniforms: { sun: { value: SUN } },
+  uniforms: {
+    sun: { value: SUN },
+    uFacade0: { value: FACADE_TEX[0] }, uFacade1: { value: FACADE_TEX[1] }, uFacade2: { value: FACADE_TEX[2] },
+    uFacade3: { value: FACADE_TEX[3] }, uFacade4: { value: FACADE_TEX[4] }, uFacade5: { value: FACADE_TEX[5] },
+    uRoof0: { value: ROOF_TEX[0] }, uRoof1: { value: ROOF_TEX[1] }, uRoof2: { value: ROOF_TEX[2] },
+  },
 });
 
 /**
@@ -608,8 +729,10 @@ const treeMaterial = new THREE.ShaderMaterial({
     varying vec3 vNormal; varying float vShade; varying vec3 vColor;
     vec3 toLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
     void main() {
-      float light = 0.58 + 0.42 * max(dot(normalize(vNormal), sun), 0.0);
+      float ndl = dot(normalize(vNormal), sun);
+      float light = ndl > 0.40 ? 1.06 : ndl > -0.20 ? 0.90 : 0.74;
       vec3 c = vColor * (0.92 + 0.16 * vShade);
+      c = mix(c, c * vec3(0.86, 0.95, 0.93), (1.0 - light) * 1.4); // undersides stay green, not grey
       #ifdef CARTOON
         gl_FragColor = vec4(toLinear(clamp(c * light, 0.0, 1.0)), 1.0);
       #else
@@ -633,7 +756,8 @@ function pointInRing(x: number, y: number, ring: P2[]) {
 function buildObjects(data: TileObjects) {
   objects.children.forEach((o: any) => o.geometry?.dispose());
   objects.clear();
-  const pos: number[] = [], nor: number[] = [], col: number[] = [], fac: number[] = [], tow: number[] = [], tnt: number[] = [];
+  const pos: number[] = [], nor: number[] = [], col: number[] = [], fac: number[] = [], ruv: number[] = [];
+  const tow: number[] = [], tnt: number[] = [], hgtA: number[] = [];
   /** axis-aligned box on a roof (rooftop clutter), no facade pattern */
   const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, c: number[]) => {
     const X = [x - sx / 2, x + sx / 2], Y = [y - sy / 2, y + sy / 2], Z = [z, z + sz];
@@ -645,7 +769,10 @@ function buildObjects(data: TileObjects) {
       [[[X[0], Y[1], Z[0]], [X[0], Y[0], Z[0]], [X[0], Y[0], Z[1]], [X[0], Y[1], Z[1]]], [-1, 0, 0]],
     ];
     for (const [q, nn] of faces) for (const v of [0, 1, 2, 0, 2, 3]) {
-      pos.push(...q[v]); nor.push(...nn); col.push(...c); fac.push(0, -1000); tow.push(0); tnt.push(0);
+      pos.push(...q[v]); nor.push(...nn); col.push(...c); fac.push(0, -1000);
+      // rooftop clutter keeps the roof texture: its top face carries world x,y, its sides none
+      ruv.push(nn[2] === 1 ? q[v][0] : 0, nn[2] === 1 ? q[v][1] : 0);
+      tow.push(0); tnt.push(0); hgtA.push(0);
     }
   };
   const hash = (n: number) => { let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); x ^= x >>> 13; return (Math.imul(x, 0xc2b2ae35) >>> 0) / 2 ** 32; };
@@ -666,13 +793,15 @@ function buildObjects(data: TileObjects) {
       const quad = [[ax, ay, g, along, -1], [bx, by, g, along + L, -1], [bx, by, top, along + L, top - g - 1], [ax, ay, top, along, top - g - 1]];
       for (const q of [0, 1, 2, 0, 2, 3]) {
         pos.push(quad[q][0], quad[q][1], quad[q][2]); nor.push(nx, ny, 0); col.push(...wall);
-        fac.push(quad[q][3], quad[q][4]); tow.push(isTower); tnt.push(tint);
+        fac.push(quad[q][3], quad[q][4]); ruv.push(0, 0);
+        tow.push(isTower); tnt.push(tint); hgtA.push(h);
       }
       along += L;
     }
     const tris = THREE.ShapeUtils.triangulateShape(ring.map(([x, y]) => new THREE.Vector2(x, y)), []);
     for (const t of tris) for (const v of t) {
-      pos.push(ring[v][0], ring[v][1], top); nor.push(0, 0, 1); col.push(...roof); fac.push(0, -1000); tow.push(0); tnt.push(tint);
+      pos.push(ring[v][0], ring[v][1], top); nor.push(0, 0, 1); col.push(...roof); fac.push(0, -1000);
+      ruv.push(ring[v][0], ring[v][1]); tow.push(0); tnt.push(tint); hgtA.push(h);
     }
     // rooftop clutter on flat residential roofs: solar water heaters (panel + tank), AC units
     if (style !== 3 && style !== 4 && h > 6) {
@@ -705,6 +834,8 @@ function buildObjects(data: TileObjects) {
     geo.setAttribute("facade", new THREE.Float32BufferAttribute(fac, 2));
     geo.setAttribute("kind", new THREE.Float32BufferAttribute(tow, 1));
     geo.setAttribute("tint", new THREE.Float32BufferAttribute(tnt, 1));
+    geo.setAttribute("roofUv", new THREE.Float32BufferAttribute(ruv, 2));
+    geo.setAttribute("hgt", new THREE.Float32BufferAttribute(hgtA, 1));
     objects.add(new THREE.Mesh(geo, buildingMaterial));
   }
   if (data.t.length) {
@@ -733,20 +864,23 @@ function buildObjects(data: TileObjects) {
   }
 }
 
+/** The frustum is wider than the tile by PAD on every side (overscan); returns the padded half size. */
 function placeCamera(tx: number, ty: number) {
   const c = tileCamera(tx, ty);
-  camera.left = -c.half; camera.right = c.half;
-  camera.top = c.half; camera.bottom = -c.half;
+  const half = c.half * (FULL / SIZE);
+  camera.left = -half; camera.right = half;
+  camera.top = half; camera.bottom = -half;
   camera.near = c.near; camera.far = c.far;
   camera.position.set(...c.pos);
   camera.up.set(...c.up);
   camera.lookAt(c.pos[0] + c.dir[0], c.pos[1] + c.dir[1], c.pos[2] + c.dir[2]);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld(true);
+  return half;
 }
 
 async function renderTile(tx: number, ty: number, data?: TileObjects) {
-  placeCamera(tx, ty);
+  const half = placeCamera(tx, ty);
   buildObjects(data ?? { b: [], t: [] });
   buildGround(tx, ty, data);
   if (CARTOON) {
@@ -755,9 +889,12 @@ async function renderTile(tx: number, ty: number, data?: TileObjects) {
     renderer.clear(true, true, true);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
+    // paper grain is fixed in global pixel space; the sun is handed over in view space for the march
     postMaterial.uniforms.offset.value.set(tx * SIZE, ty * SIZE);
     postMaterial.uniforms.near.value = camera.near;
     postMaterial.uniforms.far.value = camera.far;
+    postMaterial.uniforms.halfSize.value = half;
+    postMaterial.uniforms.sunView.value.copy(SUN).transformDirection(camera.matrixWorldInverse).normalize();
     renderer.render(postScene, postCamera);
   } else {
     renderer.setRenderTarget(null);

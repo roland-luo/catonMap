@@ -91,12 +91,14 @@ export function drawGround(
     ctx.restore();
   }
 
-  // 3. soft contact shadows (short: the art has no long shadows)
+  // 3. contact shadows: the swept footprint on the ground (the wall shading comes from the material)
   ctx.save();
-  ctx.globalAlpha = cartoon ? 0.22 : 0.16;
+  // a soft edge reads as a shadow rather than a decal; the post pass adds the long screen-space one
+  ctx.filter = cartoon ? "blur(1.4px)" : "none";
+  ctx.globalAlpha = cartoon ? 0.34 : 0.16;
   ctx.fillStyle = "#3a3a40";
   for (const [ring, h] of objects.b) {
-    const L = Math.min(cartoon ? 20 : 9, h * (cartoon ? 0.5 : 0.35)), dx = SHADOW_DIR[0] * L, dy = SHADOW_DIR[1] * L;
+    const L = Math.min(cartoon ? 26 : 9, h * (cartoon ? 0.55 : 0.35)), dx = SHADOW_DIR[0] * L, dy = SHADOW_DIR[1] * L;
     ctx.beginPath();
     // swept footprint = footprint ∪ shifted footprint ∪ every edge's sweep
     for (let i = 0; i < ring.length; i++) {
@@ -108,7 +110,7 @@ export function drawGround(
     ctx.fill("nonzero");
   }
   for (const [x, y, r, ch] of objects.t) {
-    const L = Math.min(cartoon ? 9 : 6, ch * (cartoon ? 0.4 : 0.3));
+    const L = Math.min(cartoon ? 11 : 6, ch * (cartoon ? 0.45 : 0.3));
     ctx.beginPath(); ctx.arc(x + SHADOW_DIR[0] * L, y + SHADOW_DIR[1] * L, r * 0.95, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();

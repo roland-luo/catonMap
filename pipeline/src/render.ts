@@ -25,6 +25,8 @@ const { values: args, positionals } = parseArgs({
   options: {
     j: { type: "string", default: "3" },
     only: { type: "string" },
+    /** "x,y;x,y" — render tiles outside the area bbox (stale tiles kept from a larger earlier area) */
+    tiles: { type: "string" },
     force: { type: "boolean", default: false },
     ss: { type: "string", default: "2" },
     markers: { type: "string", default: "" },
@@ -67,8 +69,12 @@ async function openPage(browser: Awaited<ReturnType<typeof chromium.launch>>, di
   const groundDir = join(DERIVED, areaName, "ground");
   await page.route("http://iso.local/**", (route) => {
     const p = new URL(route.request().url()).pathname;
-    const file = p.startsWith("/ground/") ? join(groundDir, p.slice(8)) : join(dist, p === "/" ? "index.html" : p.slice(1));
-    const type = file.endsWith(".js") ? "text/javascript" : file.endsWith(".json") ? "application/json" : file.endsWith(".bin") ? "application/octet-stream" : "text/html";
+    // /ground/* comes from the area's derived ground pass, /style/* from the repository's textures
+    const file = p.startsWith("/ground/") ? join(groundDir, p.slice(8))
+      : p.startsWith("/style/") ? join(PIPELINE, "style", p.slice(7))
+      : join(dist, p === "/" ? "index.html" : p.slice(1));
+    const type = file.endsWith(".js") ? "text/javascript" : file.endsWith(".json") ? "application/json"
+      : file.endsWith(".png") ? "image/png" : file.endsWith(".bin") ? "application/octet-stream" : "text/html";
     if (!existsSync(file)) return route.fulfill({ status: 404 });
     return route.fulfill({ body: readFileSync(file), contentType: type });
   });
@@ -95,6 +101,10 @@ async function main() {
   for (const d of ["render", "height"]) mkdirSync(join(outDir, d), { recursive: true });
   let tiles = areaTiles(area.bbox);
   const all = tiles;
+  if (args.tiles) {
+    // "x,y" both ways: the CLI is documented with a comma, the render dir names tiles "x_y"
+    tiles = args.tiles.split(";").filter(Boolean).map((pair) => (pair.includes(",") ? pair.split(",") : pair.split("_")).map(Number) as [number, number]);
+  }
   if (args.only) tiles = [args.only.split(",").map(Number) as [number, number]];
   const todo = tiles.filter(([x, y]) => args.force || !existsSync(join(outDir, "render", `${x}_${y}.png`)));
   console.log(`${areaName}: ${all.length} tiles, ${todo.length} to render`);

@@ -13,9 +13,14 @@ a **cel-shaded cartoon** (`render --style cartoon`: flat posterised colour, ink 
 watercolour paper grain), so no image-model painting step is involved.
 
 Third region: **Chengdu · Longquanyi** (`/longquanyi`), the 成都经开区 strip from 大面 through the development
-zone to the 龙泉驿 district town, built from OpenStreetMap and Copernicus DEM and rendered with the same
-cel-shaded cartoon (terrain here is ~480 m, so the region carries a `groundH`/`groundU` for projections and
-batching). Its page has the search box and a literary description too.
+zone to the 龙泉驿 district town, built from OpenStreetMap and Copernicus DEM and rendered with
+`--style cartoon` (terrain here is ~480 m, so the region carries a `groundH`/`groundU` for projections and
+batching). Its cartoon has **real volume**: three cel tones per block (sun side, side, shadow side, the shadow
+tones shifted cool), a screen-space sun march for cast shadows, depth-based ambient occlusion, and an overscan
+that keeps ink, AO and shadows continuous across tile borders. It also tiles façade and roof **textures** — one
+per building style, mirror-tiled, generated locally with Qwen-Image 2.1, one image at a time
+(`pipeline/tools/qwen-texture.mjs`), five secondary ones derived (`pipeline/tools/derive-textures.mjs`); palette
+in `pipeline/style/facades/README.md`. Its page has the search box and a literary description too.
 
 The Shanghai page adds eight **hand-modelled landmarks** (`pipeline/src/landmarks.ts` + procedural three.js
 models in `pipeline/page/renderer.ts`): the Oriental Pearl at its real 468 m with 50/45 m spheres, Shanghai
@@ -41,7 +46,8 @@ street and tree where it really is, and a little life on top (cars, buses, cats,
 ## Quick start
 
 Needs Node 24+, Chromium (or Chrome: set `CHROME_PATH`), and for the optional steps FFmpeg (clips), gifsicle (GIF), the Codex CLI
-(painting) and a Cloudflare account with wrangler (publishing).
+(painting), ComfyUI with the Qwen-Image 2.1 weights (cartoon textures) and a Cloudflare account with wrangler
+(publishing).
 
 ```sh
 npm install
@@ -146,11 +152,20 @@ npm -w pipeline exec tsx src/film.ts http://localhost:<port>/ ../video/tel-aviv-
 | camera | `pipeline/src/camera.ts` | One orthographic camera per region, tilted 45° down, 0.25 m/px, in a local ENU frame at the region origin (Israel Center: Dizengoff Square, heading 340°). The same math drives both the renderer and the border projection, so they align exactly. |
 | fetch / scene | `pipeline/src/fetch.ts`, `scene.ts` | Buildings come from Tel Aviv-Yafo GIS (footprints + 2019 surveyed heights) and OSM elsewhere, and trees from the 2024 canopy layer, all extruded in our renderer. |
 | ground | `pipeline/src/ground.ts`, `pipeline/page/ground.ts` | Terrain from Copernicus GLO-30 (a surface model: buildings removed with a morphological opening + blur), sea from the OSM coastline. The surface is drawn per tile from OSM onto a canvas texture draped on the terrain: landuse, parks, beach, water, pavements, roads at real widths (`roadspec.ts`, shared with traffic) with lane markings kept out of junctions, flat road ends with junction disks (no bulges at bridge ends), rail drawn in its layer (under road bridges), zebra crossings, paths, rail, soft contact shadows. Bridges/decks the municipal layer records as buildings (anything a motorway or railway runs through) are dropped in `scene.ts`. |
-| render | `pipeline/src/render.ts`, `pipeline/page/renderer.ts` | Headless Chrome (Playwright) + three.js. Buildings sit on the terrain grid and get window-grid facades; tree crowns are instanced. Each tile gets a color pass and a height pass. No network access, no API keys. `--style cartoon` renders through a depth target and a fullscreen pass that posterises the shading, inks silhouettes and roof creases, and lays paper grain keyed on global pixel coordinates (so tiles join seamlessly); it is the default for Shanghai and Chengdu. |
+| render | `pipeline/src/render.ts`, `pipeline/page/renderer.ts` | Headless Chrome (Playwright) + three.js. Buildings sit on the terrain grid and get window-grid facades; tree crowns are instanced. Each tile gets a color pass and a height pass. No network access, no API keys. `--style cartoon` renders through a depth target and a fullscreen pass that posterises the shading, inks silhouettes and roof creases, and lays paper grain keyed on global pixel coordinates (so tiles join seamlessly); it is the default for Shanghai and Chengdu (the Israel region keeps `--style plain`, unchanged). It gives blocks real volume: cel tones per side, a screen-space sun march for cast shadows, depth-based AO and an overscan, so ink, AO and shadows stay continuous across tile borders; Chengdu's tiles also use the façade/roof textures below. |
 | paint | `pipeline/src/paint.ts` | Codex CLI image generation (ChatGPT login, no API key). Each window gets four images: the render, the height map, the style reference (`pipeline/style/reference.png`) and the tree species sheet (`pipeline/style/trees.png`: ficus, tipuana, jacaranda, flame tree, olive, Aleppo pine, eucalyptus, date and fan palms; the render colour-codes each crown's species, mostly one species per ~40 m patch). Windows are 1024 px with stride 896, painted in rings from the centre; each continues its painted neighbours. Open sea reuses one validated sea texture. Any window with a black band or patch is repainted, and every restart re-checks finished windows. Negative window numbers need `--window=-7,4`. To fix something on a seam, delete the neighbour sharing it first (each window copies its painted neighbours' edge strips, so a repaint would copy the old mistake back). When tiles are assembled, deep water in every window is shifted to the median deep-sea colour, fading in from the coast, so the sea has no window-sized patches. `--older=<ISO time>` repaints windows painted before that time (after a style change) alongside a normal run. `--assemble` only rebuilds the art tiles. |
 | export | `pipeline/src/export.ts` | Builds the `map` layer (paints, renders where unpainted) and the `photo` layer (renders) as an AVIF pyramid, only the tiles whose source changed since the published state, into the local cache. Every tile's content hash goes into `tiles-<layer>.<hash>.json` (the viewer requests `?v=<hash>`). Each city's opening view is saved as a small preview image (`preview/`), shown until the tiles are in. Roads go out columnar and delta-coded. OSM borders are projected onto the real terrain height from the height pass. OSM road bridges (layer > 0) are drawn over the painted tiles in the painted road style, so a bridge deck always lies on top of any rails or lanes Codex drew across it. |
 | publish | `pipeline/src/publish.ts` | Uploads the cache to the R2 bucket (tiles and previews first, `world.json` last), checks every upload, records the published state, empties the cache. |
 | web | `web/src/scripts/map.ts`, `traffic.ts`, `cats.ts`, `sky.ts` | OpenSeadragon deep zoom: a sparse pyramid with a tile index (no 404s), level blending, and zoom limited to the metro. A canvas overlay draws borders, labels, and simulated cars and buses on OSM roads (split at every shared node): lanes within the drawn asphalt, car following with safe gaps, junctions taken in turns by approach, drifting cruise speeds; hidden behind buildings using the height pass and under bridges (higher OSM layer). A few street cats (~1 per 900 m of street) sit and stroll on the pavements when zoomed in close; small flocks of green parakeets dart over the streets, and every ~2 min an airliner comes in from the sea on the Ben Gurion approach and fades out inland. Keys: **B** borders · **T** traffic · **P** raw render · **I** about · **V** video mode (`?video`). `/#metro` shows the whole metro. |
+
+**Cartoon textures.** The cartoon shader tiles façade and roof textures from `pipeline/style/facades/`:
+flat-lit, shadowless pattern images, mirror-tiled, so only their edges have to stay tone-continuous (the shader
+adds the cel ramp, the sun and the AO). Each is generated one image at a time with the local Qwen-Image 2.1
+through ComfyUI — `node pipeline/tools/qwen-texture.mjs --name <name>`, spec `pipeline/style/textures.json` —
+and the five cheaper variants are derived from the generated ones with `pipeline/tools/derive-textures.mjs`.
+`pipeline/src/render.ts` serves `pipeline/style/` to the headless page as `/style/*`. The images are generated
+decoration, not map content: the geometry under them is still OpenStreetMap + Copernicus DEM, and the photo
+references in `pipeline/style/facades/README.md` are never shipped.
 
 **Add an area:** add its bbox (and region) to `pipeline/src/areas.ts`, then run fetch, ground, scene, render, paint and export.
 Areas of one region share its camera and grid, so they line up.
@@ -162,5 +177,7 @@ Tel Aviv-specific sources (municipal buildings and canopy in `fetch.ts`/`scene.t
 ## Licence
 
 Code: [MIT](LICENSE). Map imagery and videos: CC BY 4.0 together with the data credits
-(© OpenStreetMap contributors, Tel Aviv-Yafo Municipality, Copernicus DEM, "Painted with AI").
+(© OpenStreetMap contributors, Tel Aviv-Yafo Municipality, Copernicus DEM, "Painted with AI"). The façade and
+roof textures in `pipeline/style/facades/` are generated here with Qwen-Image 2.1 (Apache-2.0) and are our own
+asset, licensed with `pipeline/style/`.
 Sources, licences and the required credit line are in [ATTRIBUTION.md](ATTRIBUTION.md).
