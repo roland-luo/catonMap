@@ -112,6 +112,14 @@ unbroken across tile borders, roof texture UVs turned per building). It is the d
 the Israel region keeps `--style plain`, unchanged. Such tiles are not AI-painted: credit them as a cel-shaded
 render and do not say "Painted with AI". Everything after `render` (export, publish, deploy) is unchanged.
 
+**Photographic repaint (Chengdu).** `pipeline/tools/qwen-paint.mjs` repaints each rendered art tile with the
+local Qwen-Image 2.1 + its Fun ControlNet (a *model patch* in `ComfyUI/models/model_patches`, applied with
+`QwenImageDiffsynthControlnet`, control type depth). The depth hint comes from the height pass, and the
+sampler starts from the render's own latent (denoise 0.6), so footprints and streets stay put; a tile is
+accepted only when its Sobel edge map still correlates with the render (`--min-edge`, default 0.3). Output
+goes to `data/derived/<area>/paint/`, which `export` prefers over `render/`. Run it one tile at a time
+(one GPU), e.g. `node pipeline/tools/qwen-paint.mjs --area longquanyi --count 400 --init`.
+
 **Cartoon textures (Chengdu).** The cartoon shader tiles façade and roof textures from
 `pipeline/style/facades/`; each must be flat-lit, shadowless and mirror-tileable, because the shader adds the
 cel ramp, the sun and the AO. To add or redo one, add an entry (name, `module` in metres, prompt, crop) to
