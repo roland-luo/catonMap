@@ -3,6 +3,11 @@
 Everything on the map is built from open data. No Google, Apple, Bing or other proprietary map content
 (imagery, 3D tiles, geometry) is used, not even as a reference.
 
+One exception sits beside the map rather than inside it: the optional **Baidu Maps basemap**
+(`?basemap=baidu`) draws Baidu's own proprietary tiles through Baidu's JS API. It contributes no geometry
+or imagery to the painted map, the tiles and the derived database are unchanged by it, and it is credited
+on the page (百度地图) whenever it is shown. It is not open data and has no licence to redistribute its
+tiles.
 
 ## This repository
 
@@ -60,7 +65,9 @@ sheet) and `sea.png` (sea texture).
 [Astro](https://astro.build) (MIT), [sharp](https://sharp.pixelplumbing.com) (Apache-2.0),
 [Playwright](https://playwright.dev) (Apache-2.0), [esbuild](https://esbuild.github.io) (MIT),
 [tsx](https://tsx.is) (MIT), [FFmpeg](https://ffmpeg.org) (LGPL/GPL, used as an external tool only),
-[gifsicle](https://www.lcdf.org/gifsicle/) (GPL-2.0, external tool only). Installed from npm or the system package manager,
+[gifsicle](https://www.lcdf.org/gifsicle/) (GPL-2.0, external tool only),
+[Baidu Maps JS API](https://lbsyun.baidu.com/) (proprietary service, optional basemap, loaded from Baidu's CDN
+at runtime, not vendored; its terms of service cover its use and its tiles are not redistributed). Installed from npm or the system package manager,
 not vendored; their licences come with them.
 
 This is not legal advice.

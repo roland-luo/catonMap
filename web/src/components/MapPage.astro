@@ -67,6 +67,8 @@ const pageUrl = new URL(Astro.url.pathname.replace(/(.)\/$/, "$1"), site).href, 
 	</head>
 	<body data-city={city} data-region={c.region}>
 		<div id="map"></div>
+		{/* basemap switch: the painted isometric map <-> Baidu Maps (scripts/boot.ts sets the label) */}
+		<button id="basemap-toggle" type="button" hidden>百度地图</button>
 		{["shanghai", "chengdu"].includes(c.region) && (
 			<div id="search" role="search">
 				<div class="row">
@@ -131,6 +133,26 @@ const pageUrl = new URL(Astro.url.pathname.replace(/(.)\/$/, "$1"), site).href, 
 				#preview .lqip { background-image: var(--lqip-port); }
 			}
 			#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+			/* basemap switch + the "fell back to Baidu" line (scripts/boot.ts) */
+			#basemap-toggle { position: fixed; z-index: 12; top: calc(14px + env(safe-area-inset-top, 0px));
+				right: calc(14px + env(safe-area-inset-right, 0px)); padding: 7px 13px; border-radius: 999px;
+				border: 1px solid rgba(70, 64, 52, 0.22); background: rgba(255, 252, 245, 0.94); color: #3e3a32;
+				font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 2px 10px rgba(60, 50, 30, 0.10);
+				backdrop-filter: blur(6px); touch-action: manipulation; }
+			#basemap-toggle:hover { background: #fffaf0; }
+			#basemap-toggle[hidden] { display: none; }
+			#basemap-note { position: fixed; z-index: 12; left: 50%; bottom: calc(46px + env(safe-area-inset-bottom, 0px));
+				transform: translateX(-50%); display: flex; gap: 10px; align-items: baseline;
+				max-width: min(560px, calc(100vw - 28px)); padding: 8px 12px; border-radius: 9px; font-size: 13px;
+				color: #3e3a32; background: rgba(255, 252, 245, 0.95); border: 1px solid rgba(70, 64, 52, 0.2);
+				box-shadow: 0 6px 20px rgba(60, 50, 30, 0.18); backdrop-filter: blur(6px); }
+			#basemap-note a { color: #0b63c5; text-decoration: none; white-space: nowrap; }
+			#basemap-note button { border: 0; background: none; font: inherit; color: #8d8676; cursor: pointer; padding: 0 2px; }
+			/* Baidu Maps: its own chrome, so the page's painted-map furniture steps aside. The SDK rewrites
+			   the inline style of the element it is given, so that element is a child with its own size. */
+			body.baidu #map { background: #f2f0ea; }
+			#map #baidu-map { position: absolute; inset: 0; width: 100%; height: 100%; }
+			body.baidu #map-poem { display: none; }
 			/* search: a paper card over the map, keyboard first ( / focuses, Esc closes, ↑↓ pick) */
 			#search { position: fixed; z-index: 6; top: calc(14px + env(safe-area-inset-top, 0px)); left: 14px; width: 300px;
 				max-width: calc(100vw - 28px); font-size: 14px; color: #3e3a32; }
@@ -168,6 +190,12 @@ const pageUrl = new URL(Astro.url.pathname.replace(/(.)\/$/, "$1"), site).href, 
 			#city-close { padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(70, 64, 52, 0.25); background: #fffaf0;
 				color: #3e3a32; font: inherit; font-size: 14px; cursor: pointer; }
 			@media (max-width: 720px) { #map-poem { display: none; } #search { width: calc(100vw - 28px); } }
+			/* the basemap switch owns the top-right corner: keep the search card clear of it on phones */
+			@media (max-width: 720px) { #search { left: 14px; right: calc(106px + env(safe-area-inset-right, 0px)); width: auto; } }
+			/* Baidu hits carry a name and a long address: stack them, one ellipsis each */
+			body.baidu #search-results li { flex-direction: column; align-items: stretch; gap: 1px; }
+			body.baidu #search-results .n,
+			body.baidu #search-results .e { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 			#credits { position: fixed; right: 0; bottom: 0; z-index: 10; font-size: 11px; line-height: 1.4; max-width: calc(100vw - 48px);
 				padding: 3px calc(8px + env(safe-area-inset-right, 0px)) calc(3px + env(safe-area-inset-bottom, 0px)) 8px;
 				background: rgba(255, 255, 255, 0.85); color: #333; border-top-left-radius: 6px; }
@@ -188,7 +216,7 @@ const pageUrl = new URL(Astro.url.pathname.replace(/(.)\/$/, "$1"), site).href, 
 		</style>
 
 		<script>
-			import '../scripts/map.ts';
+			import '../scripts/boot.ts';
 		</script>
 	</body>
 </html>

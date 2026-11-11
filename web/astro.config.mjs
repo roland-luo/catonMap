@@ -71,8 +71,13 @@ export default defineConfig({
 	integrations: [cityRedirects()],
 	site: process.env.SITE_DOMAIN ? `https://${process.env.SITE_DOMAIN}` : undefined,
 	vite: {
-		// the browser has no process.env: bake the tile origin into the viewer
-		define: { __TILES_ORIGIN__: JSON.stringify(HOSTING.origin), __WEB_CACHE__: JSON.stringify(CACHE) },
+		// the browser has no process.env: bake the tile origin into the viewer, plus the Baidu AK of the
+		// optional basemap (PUBLIC_BAIDU_AK in the repo-root .env; ?ak= can override it at runtime)
+		define: {
+			__TILES_ORIGIN__: JSON.stringify(HOSTING.origin),
+			__WEB_CACHE__: JSON.stringify(CACHE),
+			__BAIDU_AK__: JSON.stringify(process.env.PUBLIC_BAIDU_AK ?? ''),
+		},
 		// pre-bundle the viewer so the dev server never serves a stale dependency
 		optimizeDeps: { include: ['openseadragon'] },
 		plugins: [regionsOverlay()],

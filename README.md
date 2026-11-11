@@ -71,6 +71,24 @@ datasets and licences are acceptable, code changes, pipeline commands and checks
 Links: `/tel-aviv-yafo?at=32.054,34.752,1` (lat, lon, screen width in km), `#@x,y,zoom` (kept in the URL
 while you pan), `#metro` (whole region).
 
+### Basemap: painted map or Baidu Maps
+
+Every city page can draw either basemap, with a switch in the top-right corner (`web/src/scripts/boot.ts`):
+
+- **Baidu Maps** (`?basemap=baidu`) — the Baidu JS API in the page, loaded with the AK from
+  `PUBLIC_BAIDU_AK` (`.env`; `?ak=` overrides it once). Its own tiles, the city centre from
+  `places.ts`, the Shanghai landmarks as markers and the search box wired to Baidu's LocalSearch.
+  WGS84 → BD09 conversion is in `web/src/scripts/baidu.ts`. The default for the Chinese regions.
+- **The painted map** (`?basemap=iso`) — the isometric tiles from R2; the default elsewhere, since
+  Baidu has no data outside China worth showing.
+
+If the chosen basemap cannot load (unreachable tile origin, a rejected AK) the page falls back to the
+other and says so. The choice is remembered per region in localStorage.
+
+Baidu Maps is a **proprietary service**, not open data: it is opt-in here, it carries Baidu's own
+copyright line, and it is credited in the footer (`百度地图`) when it is shown. An AK is bound to the
+referer domains listed in the Baidu console — add `localhost` (dev, any port) and the site's domain.
+
 ## Hosting
 
 **Site:** Cloudflare Workers static assets (`wrangler.jsonc`).
