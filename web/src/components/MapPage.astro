@@ -1,0 +1,194 @@
+---
+/** The map page of one city: its region's flat map, opened centred on the city. */
+import { CITIES, REGIONS } from "../../../pipeline/src/places.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { HOSTING } from "../../../pipeline/src/hosting.ts";
+declare const __WEB_CACHE__: string; // data/web/, injected by astro.config.mjs
+interface Props { city: string; home?: boolean }
+interface Preview { file: string; lqip: string }
+interface World { files?: Record<string, string>; previews?: Record<string, { land: Preview; port: Preview }> }
+const { city, home = false } = Astro.props;
+const c = CITIES[city], region = REGIONS[c.region];
+// map data comes from R2 (same-origin /regions in dev): start its downloads with the HTML, not after the script
+const tilesOrigin = import.meta.env.DEV ? "" : HOSTING.origin;
+const regionBase = `${tilesOrigin}/regions/${c.region}`, data = `${regionBase}/data`;
+// the region's world.json as published (in dev: the export cache first, as the dev server serves it):
+// names of the current content-hashed files to preload, and the city's preview
+async function loadWorld(): Promise<World> {
+  const local = `${__WEB_CACHE__}regions/${c.region}/data/world.json`;
+  if (import.meta.env.DEV && existsSync(local)) return JSON.parse(readFileSync(local, "utf8"));
+  try {
+    const r = await fetch(`${HOSTING.origin}/regions/${c.region}/data/world.json?build=${Date.now()}`);
+    return r.ok ? await r.json() : {};
+  } catch { return {}; }
+}
+const world = await loadWorld();
+const preload = world.files ? [world.files["tiles-map"], world.files.borders].filter(Boolean) : ["tiles.json", "borders.json"];
+const pv = world.previews?.[city];
+const title = home ? "Isometric World" : `${c.title} · Isometric World`;
+const description = home ? "An isometric city map from open data." : `${c.title}: an isometric city map from open data.`;
+// crawlers need absolute URLs: site comes from SITE_DOMAIN (astro.config.mjs)
+const site = Astro.site ?? Astro.url;
+const pageUrl = new URL(Astro.url.pathname.replace(/(.)\/$/, "$1"), site).href, ogImage = new URL(`/og/${home ? "index" : city}.jpg`, site).href;
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="/favicon.ico" sizes="48x48" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<link rel="manifest" href="/site.webmanifest" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="#0e0f12" />
+		<meta name="color-scheme" content="dark" />
+		<title>{title}</title>
+		{tilesOrigin && <link rel="preconnect" href={tilesOrigin} crossorigin="anonymous" />}
+		<link rel="preload" href={`${data}/world.json`} as="fetch" crossorigin="anonymous" />
+		{preload.map((f) => <link rel="preload" href={`${data}/${f}`} as="fetch" crossorigin="anonymous" />)}
+		<meta name="description" content={description} />
+		{/* social cards: web/public/og/<city>.jpg, made by pipeline/src/og.ts from the published tiles */}
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="Isometric World" />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<link rel="canonical" href={pageUrl} />
+		<meta property="og:url" content={pageUrl} />
+		<meta property="og:image" content={ogImage} />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content={home ? "Isometric World, an isometric city map from open data" : `${c.title}, isometric city map`} />
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+		<meta name="twitter:image" content={ogImage} />
+		{/* Pirsch Analytics (cookie-free), proxied first-party by worker/index.ts; the access key is a Worker secret */}
+		{!import.meta.env.DEV && <script is:inline defer src="/p/s.js" id="pianjs" data-hit-endpoint="/p/v" data-event-endpoint="/p/e" data-session-endpoint="/p/k"></script>}
+	</head>
+	<body data-city={city} data-region={c.region}>
+		<div id="map"></div>
+		{["shanghai", "chengdu"].includes(c.region) && (
+			<div id="search" role="search">
+				<div class="row">
+					<input id="search-input" type="search" placeholder="搜索地标、街道、区域…" autocomplete="off"
+						aria-label="搜索地标、街道、区域" spellcheck="false" />
+					{c.region === "shanghai" && <button id="city-toggle" type="button">全市域</button>}
+				</div>
+				<ul id="search-results" hidden></ul>
+			</div>
+		)}
+		{c.region === "shanghai" && (
+			<div id="city-overview" hidden>
+				<figure>
+					<img src="/city/shanghai-overview.png" alt="上海全市域：16 个区、长江口、黄浦江与中心城区位置" />
+					<figcaption>
+						<span>上海 · 全市域</span>
+						<button id="city-close" type="button">回到中心城区 3D 地图</button>
+					</figcaption>
+				</figure>
+			</div>
+		)}
+		{region.description && <aside id="map-poem">{region.description}</aside>}
+		{pv && (
+			/* the opening view as one image (and a blurred inline version until it loads); map.ts fades it out
+			   once the tiles are in. Laid out like the viewer opens the city: full width, centred vertically. */
+			<div id="preview" aria-hidden="true" style={`--lqip-land: url(${pv.land.lqip}); --lqip-port: url(${pv.port.lqip})`}>
+				<div class="frame">
+					<div class="lqip"></div>
+					<picture>
+						<source media="(max-aspect-ratio: 5/4)" srcset={`${regionBase}/${pv.port.file}`} type="image/avif" />
+						<img src={`${regionBase}/${pv.land.file}`} alt="" fetchpriority="high" decoding="async" />
+					</picture>
+				</div>
+			</div>
+		)}
+		<script is:inline>
+			// a deep link (#@x,y,z, #metro, ?at=) opens somewhere else: no preview
+			if (/^#(@|metro)/.test(location.hash) || new URLSearchParams(location.search).has("at")) document.getElementById("preview")?.remove();
+		</script>
+		<footer id="credits"></footer>
+		<!-- video mode (?video or V): big credit line above the area social apps cover with their UI -->
+		<div id="video-credit">{region.credits.map((line, i) => <>{i > 0 && <br />}{line}</>)}</div>
+
+		<style is:global>
+			html, body { margin: 0; height: 100%; background: #0e0f12; font-family: ui-sans-serif, system-ui, sans-serif; overflow: hidden;
+				overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+			/* the map owns every gesture: no browser pan/pinch/double-tap zoom of the page, no long-press callout */
+			#map { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+			#map { position: fixed; inset: 0; background: #0e0f12; }
+			/* the cartoon region is drawn on paper: the exported tiles fade into this same cream */
+			body[data-region="shanghai"], body[data-region="shanghai"] #map,
+			body[data-region="shanghai"] #preview,
+			body[data-region="chengdu"], body[data-region="chengdu"] #map,
+			body[data-region="chengdu"] #preview { background: #efe8d8; }
+			#preview { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; background: #0e0f12; }
+			/* landscape: the image is 0.8 × as tall as wide; portrait and squarish screens: 2.2 × (export.ts PREVIEWS) */
+			#preview .frame { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 1 / 0.8; transform: translateY(-50%); }
+			#preview .lqip { position: absolute; inset: 0; background: var(--lqip-land) center / 100% 100%; filter: blur(12px); }
+			#preview img { position: absolute; inset: 0; width: 100%; height: 100%; }
+			@media (max-aspect-ratio: 5/4) {
+				#preview .frame { aspect-ratio: 1 / 2.2; }
+				#preview .lqip { background-image: var(--lqip-port); }
+			}
+			#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+			/* search: a paper card over the map, keyboard first ( / focuses, Esc closes, ↑↓ pick) */
+			#search { position: fixed; z-index: 6; top: calc(14px + env(safe-area-inset-top, 0px)); left: 14px; width: 300px;
+				max-width: calc(100vw - 28px); font-size: 14px; color: #3e3a32; }
+			#search input { width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 9px; border: 1px solid rgba(70, 64, 52, 0.22);
+				background: rgba(255, 252, 245, 0.94); color: #3e3a32; font: inherit; outline: none;
+				box-shadow: 0 2px 10px rgba(60, 50, 30, 0.10); backdrop-filter: blur(6px); }
+			#search input:focus { border-color: rgba(70, 64, 52, 0.45); }
+			#search input::placeholder { color: #9a927f; }
+			#search-results { list-style: none; margin: 6px 0 0; padding: 4px; border-radius: 9px;
+				background: rgba(255, 252, 245, 0.97); border: 1px solid rgba(70, 64, 52, 0.18);
+				box-shadow: 0 6px 20px rgba(60, 50, 30, 0.16); max-height: 320px; overflow: auto; }
+			#search-results li { display: flex; gap: 8px; align-items: baseline; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+			#search-results li[aria-selected="true"], #search-results li:hover { background: rgba(70, 64, 52, 0.09); }
+			#search-results .n { font-weight: 500; }
+			#search-results .e { color: #8d8676; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+			#search-results .empty { color: #9a927f; cursor: default; }
+			#map-poem { position: fixed; z-index: 4; right: 12px; bottom: calc(34px + env(safe-area-inset-bottom, 0px)); width: 330px;
+				max-width: calc(100vw - 24px); padding: 12px 15px; border-radius: 9px; pointer-events: none;
+				font-family: "Noto Serif SC", "Songti SC", "STSong", serif; font-size: 14px; line-height: 1.85; letter-spacing: 0.02em;
+				color: rgba(58, 52, 42, 0.88); background: rgba(250, 245, 233, 0.72); backdrop-filter: blur(5px);
+				border: 1px solid rgba(90, 80, 60, 0.12); text-align: justify; }
+			/* the whole-municipality card */
+			#search .row { display: flex; gap: 6px; align-items: stretch; }
+			#search input { flex: 1; min-width: 0; }
+			#city-toggle { flex: none; padding: 0 11px; border-radius: 9px; border: 1px solid rgba(70, 64, 52, 0.22);
+				background: rgba(255, 252, 245, 0.94); color: #3e3a32; font: inherit; font-size: 13px; cursor: pointer;
+				box-shadow: 0 2px 10px rgba(60, 50, 30, 0.10); backdrop-filter: blur(6px); }
+			#city-toggle:hover { background: #fffaf0; }
+			#city-overview { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+				background: rgba(239, 232, 216, 0.97); backdrop-filter: blur(6px); }
+			#city-overview[hidden] { display: none; }
+			#city-overview figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; max-height: 96vh; }
+			#city-overview img { max-height: calc(96vh - 60px); max-width: 94vw; width: auto; box-shadow: 0 18px 60px rgba(60, 50, 30, 0.24); border-radius: 3px; }
+			#city-overview figcaption { display: flex; gap: 18px; align-items: center; font-family: "Noto Serif SC", "Songti SC", serif; color: #4a4438; font-size: 15px; }
+			#city-close { padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(70, 64, 52, 0.25); background: #fffaf0;
+				color: #3e3a32; font: inherit; font-size: 14px; cursor: pointer; }
+			@media (max-width: 720px) { #map-poem { display: none; } #search { width: calc(100vw - 28px); } }
+			#credits { position: fixed; right: 0; bottom: 0; z-index: 10; font-size: 11px; line-height: 1.4; max-width: calc(100vw - 48px);
+				padding: 3px calc(8px + env(safe-area-inset-right, 0px)) calc(3px + env(safe-area-inset-bottom, 0px)) 8px;
+				background: rgba(255, 255, 255, 0.85); color: #333; border-top-left-radius: 6px; }
+			#credits .credit { white-space: nowrap; }
+			#credits a { color: #0b63c5; text-decoration: none; touch-action: manipulation; }
+			@media (pointer: coarse) { #credits { font-size: 12px; } #credits a { padding: 4px 0; } }
+			/* phones: a full-width bar with left-aligned lines, clear of the notch corners and the home indicator */
+			@media (max-width: 640px) {
+				#credits { left: 0; max-width: none; border-radius: 0; text-align: left;
+					padding: 5px calc(12px + env(safe-area-inset-right, 0px)) calc(5px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px)); }
+			}
+			#video-credit { display: none; position: fixed; z-index: 10; left: 50%; bottom: calc(9svh + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+				width: max-content; max-width: 92vw; padding: 0.35em 0.8em; border-radius: 0.5em; text-align: center;
+				font-size: clamp(10px, 1.55vmin, 15px); font-weight: 500; line-height: 1.4; color: rgba(255, 255, 255, 0.95);
+				background: rgba(10, 12, 16, 0.42); backdrop-filter: blur(4px); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); pointer-events: none; }
+			body.video #video-credit { display: block; }
+			body.video #credits { display: none; }
+		</style>
+
+		<script>
+			import '../scripts/map.ts';
+		</script>
+	</body>
+</html>

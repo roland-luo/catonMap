@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "note": "Map asset plates: one building/prop per image, drawn for the cartoon regions and used as style + detail references when painting tiles. Prompt and generation parameters are kept next to each plate so any asset can be regenerated.",
+  "generator": {
+    "runner": "ComfyUI (local, 127.0.0.1:8188)",
+    "model": "qwen-image-2.1-UC-int8_convrot.safetensors",
+    "text_encoder": "qwen3vl_8b_int8_convrot.safetensors (type qwen_image)",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors",
+    "sampler": "euler / simple, cfg 1.0, denoise 1.0"
+  },
+  "assets": [
+    {
+      "name": "仓库1",
+      "kind": "warehouse",
+      "file": "仓库1.png",
+      "prompt": "prompts/仓库1.txt",
+      "width": 2048,
+      "height": 1360,
+      "steps": 36,
+      "cfg": 1.0,
+      "seed": 771122,
+      "region": "chengdu",
+      "status": "approved",
+      "created": "2026-11-11T13:40:09+0800",
+      "source": "lq-qwen_00002_.png"
+    },
+    {
+      "name": "写字楼1",
+      "kind": "office",
+      "file": "写字楼1.png",
+      "prompt": "prompts/写字楼1.txt",
+      "width": 2048,
+      "height": 1360,
+      "steps": 36,
+      "cfg": 1.0,
+      "seed": 771123,
+      "region": "chengdu",
+      "status": "draft",
+      "created": "2026-11-11T13:44:04+0800",
+      "source": "lq-qwen_00003_.png"
+    }
+  ]
+}
