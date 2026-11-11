@@ -97,8 +97,7 @@ export const REGIONS: Record<string, Region> = {
     ],
     credits: [
       "Map data © OpenStreetMap contributors · Chengdu · Longquanyi",
-      "Terrain: Copernicus DEM © DLR, Airbus DS · Cel-shaded cartoon render",
-      "Facade textures generated with Qwen-Image 2.1 (Apache-2.0)",
+      "Terrain: Copernicus DEM © DLR, Airbus DS · Photographic render, facade textures generated with Qwen-Image 2.1 (Apache-2.0)",
     ],
     description:
       "龙泉山下，汽车城的灯沿着成龙大道一盏盏亮起；东安湖把天空收进水面，" +

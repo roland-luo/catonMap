@@ -139,6 +139,76 @@
         0.96,
         0.96
       ]
+    },
+    {
+      "name": "real-factory-wall",
+      "module": [
+        20,
+        20
+      ],
+      "prompt": "Photorealistic architectural texture, flat orthographic front elevation, even overcast daylight, no cast shadows, no perspective, no people, no text: The pattern fills the whole square frame edge to edge and repeats seamlessly in both directions. A modern Chinese car-factory workshop wall: white corrugated steel cladding with a sky-blue horizontal band, a long strip of tinted glazing in dark aluminium frames, fine vertical ribs, a grey steel service door at the lower left, slight weathering.",
+      "crop": [
+        0.02,
+        0.02,
+        0.96,
+        0.96
+      ]
+    },
+    {
+      "name": "real-residential",
+      "module": [
+        14,
+        14
+      ],
+      "prompt": "Photorealistic architectural texture, flat orthographic front elevation, even overcast daylight, no cast shadows, no perspective, no people, no text: The pattern fills the whole square frame edge to edge and repeats seamlessly in both directions. A Chinese 2000s walk-up apartment wall: cream painted plaster, pale grey concrete floor bands, square windows with white PVC frames and blue-green glass, a small balcony with a white railing, one air-conditioner box, a drain pipe, a dark plinth, subtle stains and weathering.",
+      "crop": [
+        0.03,
+        0.03,
+        0.94,
+        0.94
+      ]
+    },
+    {
+      "name": "real-office",
+      "module": [
+        16,
+        16
+      ],
+      "prompt": "Photorealistic architectural texture, flat orthographic front elevation, even overcast daylight, no cast shadows, no perspective, no people, no text: The pattern fills the whole square frame edge to edge and repeats seamlessly in both directions. A modern low-rise office wall: light warm grey stone piers between large ribbon windows of reflective blue-grey glass with slim aluminium mullions, a darker spandrel band under each window row, an entrance canopy at the lower left.",
+      "crop": [
+        0.03,
+        0.03,
+        0.94,
+        0.94
+      ]
+    },
+    {
+      "name": "real-roof-metal",
+      "module": [
+        8,
+        8
+      ],
+      "prompt": "Photorealistic architectural texture, flat orthographic front elevation, even overcast daylight, no cast shadows, no perspective, no people, no text: Seen from directly above: a silver-grey standing-seam metal roof of an industrial workshop, parallel seams running left to right, a few dusty patches, two round vents, one square skylight of pale glass. Only the roof surface. The pattern repeats seamlessly.",
+      "crop": [
+        0.02,
+        0.02,
+        0.96,
+        0.96
+      ]
+    },
+    {
+      "name": "real-roof-concrete",
+      "module": [
+        8,
+        8
+      ],
+      "prompt": "Photorealistic architectural texture, flat orthographic front elevation, even overcast daylight, no cast shadows, no perspective, no people, no text: Seen from directly above: a flat concrete roof with grey bitumen waterproofing sheets, faint overlapping seams, pale gravel patches, a small hatch and a vent pipe, one faded green painted patch, light staining. Only the roof surface. The pattern repeats seamlessly.",
+      "crop": [
+        0.02,
+        0.02,
+        0.96,
+        0.96
+      ]
     }
   ]
 }

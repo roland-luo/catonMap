@@ -13,6 +13,8 @@ useRegion(params.get("region") ?? "israel-center"); // before any projection bel
 /** "cartoon": cel-shaded colours, ink outlines from the depth pass and paper grain (see postMaterial). */
 const STYLE = params.get("style") ?? "plain";
 const CARTOON = STYLE === "cartoon";
+/** "real": the same geometry, but photographic materials, soft shading and no ink. */
+const REAL = STYLE === "real";
 const SS = Number(params.get("ss") ?? 2); // supersampling
 const SIZE = CAMERA.tile * SS;
 /** Overscan in render px: the scene is rendered bigger than the tile and cropped in the post pass, so
@@ -56,6 +58,7 @@ const postMaterial = new THREE.ShaderMaterial({
     crop: { value: SIZE },          // the tile edge in px, inside the padded image
     pad: { value: PAD },            // overscan on each side, px
     halfSize: { value: 128 },       // padded camera half size, metres (set per tile)
+    uPhoto: { value: REAL ? 1 : 0 }, // 1 = photographic finish (no ink, no cel bands, no paper)
     sunView: { value: new THREE.Vector3(-0.55, -0.35, 0.76).normalize() },
   },
   vertexShader: /* glsl */ `
@@ -64,7 +67,7 @@ const postMaterial = new THREE.ShaderMaterial({
   fragmentShader: /* glsl */ `
     uniform sampler2D tColor; uniform sampler2D tDepth;
     uniform vec2 texel, offset; uniform float near, far;
-    uniform float crop, pad, halfSize;
+    uniform float crop, pad, halfSize, uPhoto;
     uniform vec3 sunView;
     varying vec2 vUv;
     const vec3 INK = vec3(0.10, 0.11, 0.15);
@@ -108,6 +111,14 @@ const postMaterial = new THREE.ShaderMaterial({
 
       vec3 c = toSrgb(texture2D(tColor, uv).rgb);
       c *= ao;
+      #ifdef REAL
+        // photographic: a soft shadow, no line work, a trace of punch in the contrast
+        c *= mix(0.76, 1.0, lit);
+        c = pow(clamp(c, 0.0, 1.0), vec3(0.97));
+        c = mix(c, c * vec3(1.05, 1.02, 0.96), 0.7) * 1.05;
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+        return;
+      #endif
       // a hard cel shadow with a soft contact fringe: one step, quantised like everything else
       c *= mix(0.74, 1.0, lit);
 
@@ -519,9 +530,15 @@ const SUN = new THREE.Vector3(-0.55, -0.35, 0.76).normalize();
 /** Facade textures, one per style index (see style() in src/scene.ts), generated offline with the
  *  local Qwen-Image 2.1 (pipeline/tools/qwen-texture.mjs), plus three roofs. Each image is exactly one
  *  module in metres and is mirror-tiled, so a wall has no visible repeat seam. */
-const FACADE_FILES = ["bauhaus-white", "residential-cream", "public-stone", "tower-curtain", "factory-blue", "office-glass"];
-const FACADE_MODULE: Array<[number, number]> = [[16, 16], [14, 14], [14, 14], [12, 12], [20, 20], [16, 16]];
-const ROOF_FILES = ["roof-metal", "roof-blue", "roof-concrete"];
+const FACADE_FILES = REAL
+  ? ["real-residential", "real-residential", "real-office", "real-office", "real-factory-wall", "real-office"]
+  : ["bauhaus-white", "residential-cream", "public-stone", "tower-curtain", "factory-blue", "office-glass"];
+const FACADE_MODULE: Array<[number, number]> = REAL
+  ? [[22, 22], [20, 20], [22, 22], [20, 20], [26, 26], [24, 24]]
+  : [[16, 16], [14, 14], [14, 14], [12, 12], [20, 20], [16, 16]];
+const ROOF_FILES = REAL
+  ? ["real-roof-metal", "real-roof-metal", "real-roof-concrete"]
+  : ["roof-metal", "roof-blue", "roof-concrete"];
 /** GLSL if-chain for moduleOf(), so the shader cannot drift from FACADE_MODULE */
 const MODULE_CASES = FACADE_MODULE.slice(0, -1)
   .map(([w, h], i) => `      if (k == ${i}) return vec2(${w.toFixed(1)}, ${h.toFixed(1)});`)
@@ -552,7 +569,7 @@ const FACADE_TEX = await Promise.all(FACADE_FILES.map(loadTexture));
 const ROOF_TEX = await Promise.all(ROOF_FILES.map(loadTexture));
 
 const buildingMaterial = new THREE.ShaderMaterial({
-  defines: CARTOON ? { CARTOON: 1 } : {},
+  defines: CARTOON || REAL ? { CARTOON: 1 } : {},
   vertexShader: /* glsl */ `
     attribute vec3 color;
     attribute vec2 facade;   // (meters along wall, meters above ground); y = -1000: roof / rooftop object
@@ -569,6 +586,7 @@ const buildingMaterial = new THREE.ShaderMaterial({
     }`,
   fragmentShader: /* glsl */ `
     uniform vec3 sun;
+    uniform float uPhoto;   // 1 = photographic look, 0 = cel
     uniform sampler2D uFacade0, uFacade1, uFacade2, uFacade3, uFacade4, uFacade5;
     uniform sampler2D uRoof0, uRoof1, uRoof2;
     varying vec3 vColor; varying vec3 vNormal; varying vec2 vFacade; varying vec2 vRoofUv;
@@ -607,6 +625,12 @@ ${MODULE_CASES}
       vec3 albedo;
       if (roof) {
       #ifdef CARTOON
+        if (uPhoto > 0.5) {
+          int kk = int(vKind + 0.5);
+          vec2 uv = vRoofUv / ${ROOF_MODULE.toFixed(1)};
+          vec3 t = kk == 4 ? texture2D(uRoof0, uv).rgb : texture2D(uRoof2, uv).rgb;
+          albedo = toLinear(t);
+        } else {
         int k = int(vKind + 0.5);
         // sheds alternate silver standing seam and blue profiled steel; everything else concrete
         int rk = k == 4 ? (vTint > 0.5 ? 1 : 0) : 2;
@@ -616,12 +640,17 @@ ${MODULE_CASES}
         vec2 uv = (rot * vRoofUv) / ${ROOF_MODULE.toFixed(1)};
         vec3 t = rk == 0 ? texture2D(uRoof0, uv).rgb : rk == 1 ? texture2D(uRoof1, uv).rgb : texture2D(uRoof2, uv).rgb;
         albedo = mix(toLinear(t), vColor, 0.30);
+        }
       #else
         albedo = vColor; // the original flat render has no textures at all
       #endif
       } else {
         int k = int(vKind + 0.5);
         #ifdef CARTOON
+          if (uPhoto > 0.5) {
+            // photographic: the texture's own colours, only a whisper of per-building difference
+            albedo = toLinear(facadeTex(k, vFacade / moduleOf(k))) * (0.97 + 0.06 * vTint);
+          } else {
           vec2 uv = vFacade / moduleOf(k);
           vec3 t = toLinear(facadeTex(k, uv));
           albedo = t * (0.94 + 0.10 * vTint);
@@ -631,6 +660,7 @@ ${MODULE_CASES}
           else if (rel > 0.915) albedo *= 0.84;
           albedo *= 0.82 + 0.18 * smoothstep(0.0, 3.5, vFacade.y);
           albedo = mix(albedo, albedo * mix(vec3(1.0), TINTS[int(mod(vTint * 8.0, 8.0))], 1.6), 0.16);
+          }
         #else
           // the original flat render: procedurally drawn windows, no textures
           albedo = vColor;
@@ -660,19 +690,31 @@ ${MODULE_CASES}
           }
         #endif
       }
-      #ifdef CARTOON
-        float ndl = dot(n, sun);
-        float tone = roof ? 1.0 : celTone(ndl);
-        vec3 c = albedo * tone;
-        c = mix(c, c * vec3(0.90, 0.93, 1.05), (1.0 - tone) * 1.05); // shadow sides go cool, gently
+      float ndl = dot(n, sun);
+      vec3 c;
+      if (uPhoto > 0.5) {
+        // photographic: a sky dome from above, a warm bounce from the ground, then the sun
+        float sky = 0.5 + 0.5 * clamp(n.z, 0.0, 1.0);
+        vec3 amb = mix(vec3(0.46, 0.46, 0.45), vec3(0.60, 0.63, 0.68), sky);
+        c = albedo * (amb * 0.90 + vec3(1.06, 1.02, 0.97) * max(ndl, 0.0) * 0.95);
+        // glazing catches the sky: a broad highlight instead of a mirror
+        if (int(vKind + 0.5) == 3 || int(vKind + 0.5) == 5) {
+          c += vec3(0.10, 0.13, 0.16) * pow(1.0 - clamp(n.z, 0.0, 1.0), 2.0) * (0.5 + 0.5 * max(ndl, 0.0));
+        }
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
-      #else
-        float light = min(1.10, 0.74 + 0.40 * max(dot(n, sun), 0.0));
-        gl_FragColor = vec4(albedo * light, 1.0);
-      #endif
+      } else {
+        #ifdef CARTOON
+          float tone = roof ? 1.0 : celTone(ndl);
+          c = albedo * tone;
+          c = mix(c, c * vec3(0.90, 0.93, 1.05), (1.0 - tone) * 1.05);
+          gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+        #else
+          gl_FragColor = vec4(albedo * min(1.10, 0.74 + 0.40 * max(ndl, 0.0)), 1.0);
+        #endif
+      }
     }`,
   uniforms: {
-    sun: { value: SUN },
+    sun: { value: SUN }, uPhoto: { value: REAL ? 1 : 0 },
     uFacade0: { value: FACADE_TEX[0] }, uFacade1: { value: FACADE_TEX[1] }, uFacade2: { value: FACADE_TEX[2] },
     uFacade3: { value: FACADE_TEX[3] }, uFacade4: { value: FACADE_TEX[4] }, uFacade5: { value: FACADE_TEX[5] },
     uRoof0: { value: ROOF_TEX[0] }, uRoof1: { value: ROOF_TEX[1] }, uRoof2: { value: ROOF_TEX[2] },
@@ -746,7 +788,7 @@ function crownGeometry(seed: number) {
 }
 
 const treeMaterial = new THREE.ShaderMaterial({
-  defines: CARTOON ? { CARTOON: 1 } : {},
+  defines: CARTOON || REAL ? { CARTOON: 1 } : {},
   vertexShader: /* glsl */ `
     varying vec3 vNormal; varying float vShade; varying vec3 vColor;
     void main() {
@@ -764,6 +806,11 @@ const treeMaterial = new THREE.ShaderMaterial({
       // the top of a canopy catches the sky even when the sun misses it: the strongest 3D cue there is
       float up = clamp(n.z, 0.0, 1.0);
       float ndl = dot(n, sun);
+      #ifdef REAL
+        vec3 cReal = vColor * (0.86 + 0.22 * vShade) * (0.42 + 0.78 * up) * (0.45 + 0.75 * max(ndl, 0.0));
+        gl_FragColor = vec4(clamp(toLinear(cReal), 0.0, 1.0), 1.0);
+        return;
+      #endif
       float light = ndl > 0.40 ? 1.06 : ndl > -0.20 ? 0.90 : 0.74;
       vec3 c = vColor * (0.90 + 0.18 * vShade) * (0.88 + 0.30 * up);
       c = mix(c, c * vec3(0.84, 0.94, 0.90), (1.0 - light) * 1.2); // undersides stay green, not grey
