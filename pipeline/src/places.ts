@@ -26,6 +26,9 @@ export interface Region {
   groundU?: number;
   /** Compass bearing the camera looks toward (pick it diagonal to the main street grid). */
   headingDeg: number;
+  /** Tilt below the horizon for this region (default CAMERA.pitchDeg = 45°). A steeper camera shows
+   *  more roof and hides less of the ground behind each block: dense Chinese blocks need ~60°. */
+  pitchDeg?: number;
   /** OSM country (name:en of the admin_level=2 area) and municipality names (admin_level=8) for the border overlay. */
   country: string;
   municipalities: string[];
@@ -80,6 +83,7 @@ export const REGIONS: Record<string, Region> = {
     groundU: 482, // the ENU frame is at the ellipsoid: the terrain is ~482 m above it
     geoid: -42.36, // EGM2008 at 30.56N 104.27E
     headingDeg: 25, // diagonal to the 经开区 grid, 龙泉山 on the right
+    pitchDeg: 52,   // 45° hid half the street behind each block, 60° flattened the volumes
     country: "China",
     adminLevel: 8, // subdistricts of 龙泉驿区
     municipalities: [

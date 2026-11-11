@@ -703,7 +703,18 @@ const SH_SPECIES: Array<[string, number, number[], number, number, boolean]> = [
   ["ginkgo", 12, [0.72, 0.72, 0.2], 0.85, 0.9, false],     // 银杏, yellow in autumn
   ["metasequoia", 8, [0.24, 0.42, 0.2], 0.7, 1.35, false], // 水杉, a tall narrow crown
 ];
-const SPECIES = activeRegion() === "shanghai" ? SH_SPECIES : TLV_SPECIES;
+/** 龙泉驿: the same broadleaf palette as Shanghai, without the Mediterranean pinks and oranges. */
+const CD_SPECIES: Array<[string, number, number[], number, number, boolean]> = [
+  ["camphor", 34, [0.17, 0.38, 0.18], 1.05, 1.0, false],   // 香樟
+  ["plane", 28, [0.33, 0.52, 0.22], 1.0, 0.85, false],     // 法国梧桐
+  ["willow", 12, [0.45, 0.60, 0.26], 0.9, 0.7, false],     // 柳
+  ["ginkgo", 10, [0.62, 0.68, 0.22], 0.85, 0.9, false],    // 银杏
+  ["metasequoia", 8, [0.22, 0.40, 0.20], 0.7, 1.3, false], // 水杉
+  ["bamboo", 8, [0.30, 0.48, 0.20], 0.6, 1.15, false],     // 竹林边的散生竹
+];
+const REGION_SPECIES = activeRegion() === "shanghai" ? SH_SPECIES
+  : activeRegion() === "chengdu" ? CD_SPECIES : TLV_SPECIES;
+const SPECIES = REGION_SPECIES;
 const SPECIES_TOTAL = SPECIES.reduce((t, s) => t + s[1], 0);
 const rand = (x: number, y: number) => Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
 /** Mostly one species per ~40 m patch (streets are planted in runs), every 4th tree a random one. */
@@ -712,6 +723,26 @@ function species(x: number, y: number, r: number) {
   let h = (own ? rand(y, x) : rand(Math.floor(x / 40), Math.floor(y / 40))) * SPECIES_TOTAL;
   for (const s of SPECIES) if ((h -= s[1]) < 0) return s[5] && r > 4.5 ? SPECIES[0] : s; // no palm for a big canopy
   return SPECIES[0];
+}
+
+/**
+ * A tree crown: an icosahedron pushed around by a smooth deterministic wobble, so every canopy has
+ * lumps and a silhouette that is not a sphere. Flattened a little; the shader adds the tones.
+ */
+function crownGeometry(seed: number) {
+  const g = new THREE.IcosahedronGeometry(1, 2); // 320 faces: the silhouette reads as a canopy, not a gem
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const wobble = 1 + 0.16 * Math.sin(v.x * 3.1 + seed) * Math.cos(v.y * 2.7 - seed)
+      + 0.09 * Math.sin(v.z * 5.3 + seed * 2.1) + 0.05 * Math.sin(v.x * 7.9 - v.y * 6.1);
+    v.multiplyScalar(wobble);
+    v.z *= 0.80;                       // a canopy is wider than tall
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
 }
 
 const treeMaterial = new THREE.ShaderMaterial({
@@ -729,10 +760,13 @@ const treeMaterial = new THREE.ShaderMaterial({
     varying vec3 vNormal; varying float vShade; varying vec3 vColor;
     vec3 toLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
     void main() {
-      float ndl = dot(normalize(vNormal), sun);
+      vec3 n = normalize(vNormal);
+      // the top of a canopy catches the sky even when the sun misses it: the strongest 3D cue there is
+      float up = clamp(n.z, 0.0, 1.0);
+      float ndl = dot(n, sun);
       float light = ndl > 0.40 ? 1.06 : ndl > -0.20 ? 0.90 : 0.74;
-      vec3 c = vColor * (0.92 + 0.16 * vShade);
-      c = mix(c, c * vec3(0.86, 0.95, 0.93), (1.0 - light) * 1.4); // undersides stay green, not grey
+      vec3 c = vColor * (0.90 + 0.18 * vShade) * (0.88 + 0.30 * up);
+      c = mix(c, c * vec3(0.84, 0.94, 0.90), (1.0 - light) * 1.2); // undersides stay green, not grey
       #ifdef CARTOON
         gl_FragColor = vec4(toLinear(clamp(c * light, 0.0, 1.0)), 1.0);
       #else
@@ -839,7 +873,8 @@ function buildObjects(data: TileObjects) {
     objects.add(new THREE.Mesh(geo, buildingMaterial));
   }
   if (data.t.length) {
-    const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), treeMaterial, data.t.length);
+    const crownGeo = crownGeometry(1.7);
+    const crowns = new THREE.InstancedMesh(crownGeo, treeMaterial, data.t.length);
     const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 6).rotateX(Math.PI / 2).translate(0, 0, 0.5), treeMaterial, data.t.length);
     const m = new THREE.Matrix4(), c = new THREE.Color(), bark = new THREE.Color(0.45, 0.36, 0.28);
     data.t.forEach(([x, y, r, ch], i) => {
@@ -852,7 +887,7 @@ function buildObjects(data: TileObjects) {
         m.makeScale(0.4, 0.4, top - g).setPosition(x, y, g);
         trunks.setMatrixAt(i, m);
       } else {
-        m.makeScale(r * sxy, r * sxy, r * sz).setPosition(x, y, g + ch);
+        m.makeScale(r * sxy * 1.06, r * sxy * 1.06, r * sz * 0.95).setPosition(x, y, g + ch);
         crowns.setMatrixAt(i, m);
         m.makeScale(0, 0, 0);
         trunks.setMatrixAt(i, m);

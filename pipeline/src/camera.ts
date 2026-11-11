@@ -23,7 +23,7 @@ let region = "israel-center";
 /** Full camera of the active region (style + origin + heading), as written to manifests/world.json. */
 export function camera() {
   const r = REGIONS[region];
-  return { region, origin: r.origin, headingDeg: r.headingDeg, ...CAMERA };
+  return { region, origin: r.origin, headingDeg: r.headingDeg, ...CAMERA, pitchDeg: r.pitchDeg ?? CAMERA.pitchDeg };
 }
 export function activeRegion() { return region; }
 
@@ -80,7 +80,7 @@ export function ecefToEnu(p: Vec3): Vec3 {
 
 /** Camera axes in ENU. */
 export function axes() {
-  const h = rad(REGIONS[region].headingDeg), p = rad(CAMERA.pitchDeg);
+  const h = rad(REGIONS[region].headingDeg), p = rad(REGIONS[region].pitchDeg ?? CAMERA.pitchDeg);
   const fwd: Vec3 = [Math.sin(h), Math.cos(h), 0];
   const right: Vec3 = [Math.cos(h), -Math.sin(h), 0];
   const up: Vec3 = [fwd[0] * Math.sin(p), fwd[1] * Math.sin(p), Math.cos(p)];
